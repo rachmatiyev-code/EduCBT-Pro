@@ -278,32 +278,79 @@ export const api = {
     }
   },
 
-  async setGasWebhook(url: string) {
-    const res = await fetch('/api/gas/set-webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    return res.json();
-  },
-
-  async getGasWebhook(): Promise<string> {
+  async setGasWebhook(url: string): Promise<{ success: boolean; gasWebhookUrl: string }> {
+    const cleanUrl = (url || '').trim();
     try {
-      const res = await fetch('/api/gas/get-webhook');
-      const data = await res.json();
-      return data.gasWebhookUrl || '';
+      localStorage.setItem('educbt_gas_webhook_url', cleanUrl);
+      const res = await fetch('/api/gas/set-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl }),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return await res.json();
+      }
+      return { success: true, gasWebhookUrl: cleanUrl };
     } catch {
-      return '';
+      return { success: true, gasWebhookUrl: cleanUrl };
     }
   },
 
-  async testGasConnection(url: string) {
-    const res = await fetch('/api/gas/test-connection', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    return res.json();
+  async getGasWebhook(): Promise<string> {
+    const local = localStorage.getItem('educbt_gas_webhook_url') || '';
+    try {
+      const res = await fetch('/api/gas/get-webhook');
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return data.gasWebhookUrl || local;
+      }
+      return local;
+    } catch {
+      return local;
+    }
+  },
+
+  async testGasConnection(url: string): Promise<{ success: boolean; error?: string; message?: string; data?: any }> {
+    const cleanUrl = (url || '').trim();
+    if (!cleanUrl) {
+      return { success: false, error: 'URL Google Apps Script wajib diisi.' };
+    }
+
+    if (cleanUrl.includes('/edit')) {
+      return {
+        success: false,
+        error: 'URL yang Anda masukkan adalah URL Editor (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App lalu salin URL akhiran /exec.',
+      };
+    }
+
+    try {
+      const res = await fetch('/api/gas/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl }),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return data;
+      }
+
+      // If server returned non-JSON HTML (e.g. proxy or 404), do not crash with SyntaxError
+      const text = await res.text();
+      console.warn('Non-JSON response from test-connection:', text);
+      return {
+        success: false,
+        error: 'Server mengembalikan respon bukan JSON. Harap periksa kembali Web App URL Google Script Anda.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Gagal menguji koneksi: ${err.message || 'Koneksi terputus'}`,
+      };
+    }
   },
 
   async changeTeacherPassword(params: {

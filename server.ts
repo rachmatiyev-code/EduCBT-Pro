@@ -584,33 +584,87 @@ app.get('/api/exam/submissions/:sessionCode', (req, res) => {
 
 // GAS Sync & Configuration
 app.post('/api/gas/set-webhook', (req, res) => {
-  const { url } = req.body;
-  examDataStore.gasWebhookUrl = url || '';
-  return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl });
+  try {
+    const { url } = req.body || {};
+    examDataStore.gasWebhookUrl = typeof url === 'string' ? url.trim() : '';
+    return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl });
+  } catch (err: any) {
+    return res.json({ success: false, error: err.message || 'Gagal menyimpan URL webhook' });
+  }
 });
 
 app.get('/api/gas/get-webhook', (req, res) => {
-  return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl });
+  return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl || '' });
 });
 
 app.post('/api/gas/test-connection', async (req, res) => {
-  const { url } = req.body;
-  if (!url) {
-    return res.status(400).json({ success: false, error: 'URL Google Apps Script wajib diisi' });
+  const { url } = req.body || {};
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return res.json({ success: false, error: 'URL Google Apps Script wajib diisi.' });
+  }
+
+  const cleanUrl = url.trim();
+
+  // Validate URL format
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    return res.json({
+      success: false,
+      error: 'Format URL tidak valid. Pastikan diawali dengan https://script.google.com/macros/s/.../exec',
+    });
+  }
+
+  if (cleanUrl.includes('/edit')) {
+    return res.json({
+      success: false,
+      error: 'URL yang Anda masukkan adalah URL Editor (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App (Deploy -> New deployment -> Web app -> Anyone) lalu salin URL akhiran /exec.',
+    });
   }
 
   try {
-    const fetchRes = await fetch(url + '?action=ping', {
+    const pingUrl = cleanUrl + (cleanUrl.includes('?') ? '&action=ping' : '?action=ping');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    const fetchRes = await fetch(pingUrl, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (EduCBT Pro Cloud Tester)',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
+
     const text = await fetchRes.text();
+
+    // Check if Google returned an HTML page (error, login, or not found)
+    if (
+      text.includes('<html') ||
+      text.includes('<!DOCTYPE') ||
+      text.includes('Sorry, the file you have requested does not exist') ||
+      text.includes('The page could not be found') ||
+      text.includes('The page cannot be found') ||
+      text.includes('Sign in - Google Accounts')
+    ) {
+      return res.json({
+        success: false,
+        error:
+          'Google Apps Script mengembalikan halaman web atau login, bukan respon JSON. Pastikan saat Deploy di Google Script: "Execute as: Me" dan "Who has access: Anyone" (Siapa saja, bahkan tanpa login Google).',
+      });
+    }
+
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      data = { raw: text };
+      return res.json({
+        success: false,
+        error: `Respon dari Web App bukan JSON yang valid: ${text.substring(0, 100)}`,
+      });
     }
+
+    examDataStore.gasWebhookUrl = cleanUrl;
 
     return res.json({
       success: true,
@@ -618,7 +672,13 @@ app.post('/api/gas/test-connection', async (req, res) => {
       data,
     });
   } catch (err: any) {
-    return res.status(500).json({
+    if (err.name === 'AbortError') {
+      return res.json({
+        success: false,
+        error: 'Koneksi ke Google Apps Script timeout (12 detik). Pastikan script telah dideploy dengan benar dan dapat diakses publik.',
+      });
+    }
+    return res.json({
       success: false,
       error: `Gagal menghubungi Google Apps Script: ${err.message}`,
     });

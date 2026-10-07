@@ -43,17 +43,28 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
   };
 
   const handleTestAndSave = async () => {
-    if (!webhookUrl.trim()) {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
       alert('Masukkan URL Google Apps Script Web App!');
       return;
     }
+
+    if (cleanUrl.includes('/edit')) {
+      setTestResult({
+        success: false,
+        message:
+          'URL yang Anda masukkan adalah URL Editor script (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App (Deploy -> New deployment -> Web app -> Anyone) lalu salin URL akhiran /exec.',
+      });
+      return;
+    }
+
     setIsTesting(true);
     setTestResult(null);
 
     try {
-      const res = await api.testGasConnection(webhookUrl.trim());
+      const res = await api.testGasConnection(cleanUrl);
       if (res.success) {
-        await api.setGasWebhook(webhookUrl.trim());
+        await api.setGasWebhook(cleanUrl);
         setTestResult({
           success: true,
           message:
@@ -68,11 +79,24 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
     } catch (e: any) {
       setTestResult({
         success: false,
-        message: 'Error: ' + e.message,
+        message: e?.message || 'Terjadi kesalahan saat menguji koneksi.',
       });
     } finally {
       setIsTesting(false);
     }
+  };
+
+  const handleSaveDirectly = async () => {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
+      alert('Masukkan URL Google Apps Script Web App!');
+      return;
+    }
+    await api.setGasWebhook(cleanUrl);
+    setTestResult({
+      success: true,
+      message: 'URL Web App berhasil disimpan ke konfigurasi sistem!',
+    });
   };
 
   return (
@@ -229,24 +253,38 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
                 placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
                 className="w-full flex-1 px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
-              <button
-                onClick={handleTestAndSave}
-                disabled={isTesting}
-                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0"
-              >
-                {isTesting ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Menguji Koneksi...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Uji & Simpan Koneksi</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleTestAndSave}
+                  disabled={isTesting}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                >
+                  {isTesting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Menguji...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Uji & Simpan</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDirectly}
+                  className="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl text-xs flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                  title="Simpan URL langsung tanpa tes ping"
+                >
+                  <span>Simpan Saja</span>
+                </button>
+              </div>
             </div>
+            <p className="text-[11px] text-slate-500">
+              * Pastikan URL berakhiran <strong>/exec</strong> dan pada Google Apps Script diatur: <em>Execute as: Me</em> & <em>Who has access: Anyone</em>.
+            </p>
 
             {testResult && (
               <div
