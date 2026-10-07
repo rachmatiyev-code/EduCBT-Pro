@@ -18,6 +18,8 @@ import {
   Download,
   Copy,
   Check,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { Student, ClassGroup, Subject, Teacher } from '../types/cbt';
 import { api } from '../services/api';
@@ -54,6 +56,14 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
   // Bulk Import Students State
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkInputText, setBulkInputText] = useState('');
+  const [bulkTargetClassId, setBulkTargetClassId] = useState<string>('auto');
+  const [bulkOverwriteExisting, setBulkOverwriteExisting] = useState<boolean>(true);
+  const [isSavingBulk, setIsSavingBulk] = useState<boolean>(false);
+  const [bulkSuccessResult, setBulkSuccessResult] = useState<{
+    added: number;
+    updated: number;
+    total: number;
+  } | null>(null);
   const [bulkParsedStudents, setBulkParsedStudents] = useState<
     { nisn: string; name: string; classId: string; gender: 'L' | 'P' }[]
   >([]);
@@ -167,17 +177,21 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
     }
   };
 
-  // Bulk Import Parsing
-  const handleParseBulkText = (text: string) => {
+  // Bulk Import Smart Parsing
+  const handleParseBulkText = (text: string, targetClassOverride?: string) => {
     setBulkInputText(text);
     setBulkParseError('');
+    setBulkSuccessResult(null);
+
+    const activeTargetClass = targetClassOverride !== undefined ? targetClassOverride : bulkTargetClassId;
+
     if (!text.trim()) {
       setBulkParsedStudents([]);
       return;
     }
 
     const lines = text
-      .split('\n')
+      .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
 
@@ -185,31 +199,84 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Skip header if detected
-      if (i === 0 && (line.toLowerCase().includes('nisn') || line.toLowerCase().includes('nama'))) {
+
+      // Skip header if line contains words like NISN / Nama / Kelas / JK / No
+      const lowerLine = line.toLowerCase();
+      if (
+        (lowerLine.includes('nisn') && lowerLine.includes('nama')) ||
+        (i === 0 && (lowerLine.startsWith('no\t') || lowerLine.startsWith('no,')))
+      ) {
         continue;
       }
 
-      // Detect separator: tab (Excel paste), comma, or semicolon
+      // Detect separator: Tab, Semicolon, Comma, Pipe, or multiple spaces
       let parts: string[] = [];
       if (line.includes('\t')) {
-        parts = line.split('\t').map((p) => p.trim());
+        parts = line.split('\t');
       } else if (line.includes(';')) {
-        parts = line.split(';').map((p) => p.trim());
+        parts = line.split(';');
+      } else if (line.includes('|')) {
+        parts = line.split('|');
       } else if (line.includes(',')) {
-        parts = line.split(',').map((p) => p.trim());
+        parts = line.split(',');
       } else {
-        parts = line.split(/\s{2,}/).map((p) => p.trim()); // 2 or more spaces
+        parts = line.split(/\s{2,}/);
+      }
+
+      // Clean each part (trim and strip quotes)
+      parts = parts.map((p) => p.trim().replace(/^["']+|["']+$/g, '')).filter((p) => p.length > 0);
+
+      // Handle common row index column (1, 2, 3...)
+      if (parts.length >= 3 && /^\d{1,3}\.?$/.test(parts[0]) && parts[1].length >= 3) {
+        parts = parts.slice(1);
       }
 
       if (parts.length >= 2) {
-        const nisnVal = parts[0].replace(/[^0-9]/g, '') || parts[0];
-        const nameVal = parts[1];
-        let classVal = parts[2] || classes[0]?.id || '1';
+        let col0 = parts[0];
+        let col1 = parts[1];
+        let nisnVal = '';
+        let nameVal = '';
+
+        // Determine if col0 is Name and col1 is NISN (or vice-versa)
+        const isCol0Numeric = /^[0-9]+$/.test(col0.replace(/[-\s]/g, ''));
+        const isCol1Numeric = /^[0-9]+$/.test(col1.replace(/[-\s]/g, ''));
+
+        if (!isCol0Numeric && isCol1Numeric) {
+          nameVal = col0;
+          nisnVal = col1.replace(/[^0-9A-Za-z]/g, '');
+        } else {
+          nisnVal = col0.replace(/[^0-9A-Za-z]/g, '');
+          nameVal = col1;
+        }
+
+        // Determine Class
+        let classVal = classes[0]?.id || '1';
+        if (activeTargetClass && activeTargetClass !== 'auto') {
+          classVal = activeTargetClass;
+        } else if (parts[2]) {
+          const rawClass = parts[2].trim();
+          // Check if matches an existing class by ID or Name
+          const matchedClass = classes.find(
+            (c) =>
+              c.id.toLowerCase() === rawClass.toLowerCase() ||
+              c.name.toLowerCase() === rawClass.toLowerCase()
+          );
+          classVal = matchedClass ? matchedClass.id : rawClass;
+        }
+
+        // Determine Gender
         let genderVal: 'L' | 'P' = 'L';
-        if (parts[3]) {
-          const g = parts[3].toUpperCase().trim();
-          genderVal = g === 'P' || g === 'PEREMPUAN' || g === 'F' ? 'P' : 'L';
+        const rawGenderCandidate = (parts[3] || parts[2] || '').trim().toUpperCase();
+        if (
+          rawGenderCandidate === 'P' ||
+          rawGenderCandidate === 'PEREMPUAN' ||
+          rawGenderCandidate === 'WANITA' ||
+          rawGenderCandidate === 'F' ||
+          rawGenderCandidate === 'FEMALE'
+        ) {
+          genderVal = 'P';
+        } else {
+          genderVal = 'L';
         }
 
         if (nisnVal && nameVal) {
@@ -225,7 +292,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
     if (parsed.length === 0) {
       setBulkParseError(
-        'Format data tidak dikenali. Pastikan minimal memiliki kolom NISN dan Nama Siswa (dipisah koma atau tab).'
+        'Format data belum dikenali. Pastikan minimal memiliki kolom NISN dan Nama Siswa (dipisah koma atau tab dari Excel).'
       );
     }
     setBulkParsedStudents(parsed);
@@ -233,37 +300,104 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
   const handleConfirmBulkImport = async () => {
     if (bulkParsedStudents.length === 0) return;
+    setIsSavingBulk(true);
+    setBulkParseError('');
 
-    const newStudentObjects: Student[] = bulkParsedStudents.map((bp, idx) => ({
-      id: `STD-BULK-${Date.now()}-${idx}`,
-      nisn: bp.nisn,
-      name: bp.name,
-      classId: bp.classId,
-      gender: bp.gender,
-    }));
+    try {
+      // 1. Check for any new classes introduced in the import and auto-create them
+      const updatedClasses = [...classes];
+      let hasNewClasses = false;
 
-    // Avoid duplicate NISN if exists
-    const existingNisns = new Set(students.map((s) => s.nisn));
-    const finalNew = newStudentObjects.filter((s) => !existingNisns.has(s.nisn));
+      bulkParsedStudents.forEach((st) => {
+        const classExists = updatedClasses.some(
+          (c) => c.id === st.classId || c.name.toLowerCase() === st.classId.toLowerCase()
+        );
+        if (!classExists && st.classId && st.classId.trim()) {
+          const newClassGroup: ClassGroup = {
+            id: `CLS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: st.classId.trim(),
+            gradeLevel: '10',
+          };
+          updatedClasses.push(newClassGroup);
+          st.classId = newClassGroup.id;
+          hasNewClasses = true;
+        } else if (classExists) {
+          const match = updatedClasses.find(
+            (c) => c.id === st.classId || c.name.toLowerCase() === st.classId.toLowerCase()
+          );
+          if (match) {
+            st.classId = match.id;
+          }
+        }
+      });
 
-    const updated = [...students, ...finalNew];
-    await api.saveMasterData({ students: updated });
-    onRefreshData();
-    setIsBulkModalOpen(false);
-    setBulkInputText('');
-    setBulkParsedStudents([]);
-    alert(
-      `Berhasil mengimpor ${finalNew.length} siswa baru! (${
-        newStudentObjects.length - finalNew.length
-      } data diabaikan karena NISN sudah terdaftar).`
-    );
+      // 2. Build updated students list
+      const updatedStudents = [...students];
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      bulkParsedStudents.forEach((bp, idx) => {
+        const existingIdx = updatedStudents.findIndex((s) => s.nisn === bp.nisn);
+        if (existingIdx >= 0) {
+          if (bulkOverwriteExisting) {
+            updatedStudents[existingIdx] = {
+              ...updatedStudents[existingIdx],
+              name: bp.name,
+              classId: bp.classId,
+              gender: bp.gender,
+            };
+            updatedCount++;
+          }
+        } else {
+          updatedStudents.push({
+            id: `STD-BULK-${Date.now()}-${idx}`,
+            nisn: bp.nisn,
+            name: bp.name,
+            classId: bp.classId,
+            gender: bp.gender,
+          });
+          addedCount++;
+        }
+      });
+
+      // 3. Persist to API and localStorage
+      await api.saveMasterData({
+        students: updatedStudents,
+        classes: hasNewClasses ? updatedClasses : undefined,
+      });
+
+      setBulkSuccessResult({
+        added: addedCount,
+        updated: updatedCount,
+        total: addedCount + updatedCount,
+      });
+
+      onRefreshData();
+
+      // Auto close modal smoothly after brief confirmation
+      setTimeout(() => {
+        setIsBulkModalOpen(false);
+        setBulkInputText('');
+        setBulkParsedStudents([]);
+        setBulkSuccessResult(null);
+      }, 1800);
+    } catch (err: any) {
+      setBulkParseError(`Gagal menyimpan data siswa: ${err.message || 'Terjadi kesalahan sistem'}`);
+    } finally {
+      setIsSavingBulk(false);
+    }
   };
 
   const handleCopyTemplate = () => {
-    const template = `NISN,Nama Siswa,Kelas,Jenis Kelamin\n0081234001,Ahmad Dahlan,CLS-SD1A,L\n0081234002,Fatimah Azzahra,CLS-SD1A,P\n0081234003,Budi Santoso,CLS-SD4A,L\n0081234004,Siti Nurjanah,CLS-SD6A,P`;
+    const template = `NISN\tNama Siswa\tKelas\tJenis Kelamin\n0081234001\tAhmad Dahlan\t1A\tL\n0081234002\tFatimah Azzahra\t1A\tP\n0081234003\tBudi Santoso\t4A\tL\n0081234004\tSiti Nurjanah\t6A\tP`;
     navigator.clipboard.writeText(template);
     setCopiedTemplate(true);
     setTimeout(() => setCopiedTemplate(false), 2000);
+  };
+
+  const handleLoadSampleData = () => {
+    const sample = `0081234001\tAhmad Dahlan\tKelas 10 A\tL\n0081234002\tFatimah Azzahra\tKelas 10 A\tP\n0081234003\tBudi Santoso\tKelas 10 B\tL\n0081234004\tSiti Nurjanah\tKelas 10 B\tP`;
+    handleParseBulkText(sample);
   };
 
   // Handlers for Classes
@@ -857,8 +991,12 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 </div>
               </div>
               <button
-                onClick={() => setIsBulkModalOpen(false)}
-                className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/20"
+                onClick={() => {
+                  setIsBulkModalOpen(false);
+                  setBulkSuccessResult(null);
+                  setBulkParseError('');
+                }}
+                className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/20 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -866,48 +1004,112 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
             {/* Modal Content */}
             <div className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Format Help & Template Buttons */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-bold text-slate-700">Format Kolom yang Didukung:</span>
-                  <button
-                    type="button"
-                    onClick={handleCopyTemplate}
-                    className="text-indigo-600 hover:underline font-semibold flex items-center gap-1"
-                  >
-                    {copiedTemplate ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Contoh Tersalin!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Salin Contoh Format</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadSampleData}
+                      className="text-xs text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Isi textarea dengan contoh data siswa untuk mencoba"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Muat Contoh Data</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyTemplate}
+                      className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      {copiedTemplate ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Tersalin!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Salin Format Tab/Excel</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-600 font-mono bg-white p-2 rounded-lg border border-slate-200">
-                  NISN, Nama Lengkap Siswa, ID/Nama Kelas, Jenis Kelamin (L/P)
+                <p className="text-[11px] text-slate-700 font-mono bg-white p-2 rounded-lg border border-slate-200">
+                  NISN [Tab/Koma] Nama Siswa [Tab/Koma] Kelas (Opsional) [Tab/Koma] L/P (Opsional)
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  * Bisa dipisahkan tanda koma (,), titik koma (;), atau langsung copy-paste tabel Excel (Tab).
+                  * Otomatis mengenali salinan tabel dari Microsoft Excel, Google Sheets, CSV koma, atau titik-koma (;).
                 </p>
               </div>
 
+              {/* Class Target & Overwrite Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase mb-1 text-[11px]">
+                    Terapkan ke Kelas Tujuan:
+                  </label>
+                  <select
+                    value={bulkTargetClassId}
+                    onChange={(e) => {
+                      setBulkTargetClassId(e.target.value);
+                      handleParseBulkText(bulkInputText, e.target.value);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="auto">Deteksi Otomatis dari Kolom Kelas Data</option>
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        Semua Siswa Masuk: {cls.name} (Tingkat {cls.gradeLevel})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center pt-2 sm:pt-4">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium select-none text-[11px]">
+                    <input
+                      type="checkbox"
+                      checked={bulkOverwriteExisting}
+                      onChange={(e) => setBulkOverwriteExisting(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>Perbarui / sinkronkan data jika NISN sudah terdaftar</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Textarea Input */}
               <div>
-                <label className="block font-semibold text-slate-700 uppercase mb-1.5">
-                  Tempelkan Data Teks Siswa di Bawah Ini:
+                <label className="block font-semibold text-slate-700 uppercase mb-1.5 text-[11px]">
+                  Tempelkan Data Siswa di Bawah Ini:
                 </label>
                 <textarea
                   rows={6}
                   value={bulkInputText}
                   onChange={(e) => handleParseBulkText(e.target.value)}
-                  placeholder="Contoh:&#10;0081234001, Ahmad Dahlan, CLS-SD1A, L&#10;0081234002, Siti Fatimah, CLS-SD1A, P&#10;0081234003, Budi Santoso, CLS-SD4A, L"
+                  placeholder="Contoh salinan Excel / Google Sheets:&#10;0081234001	Ahmad Dahlan	1A	L&#10;0081234002	Siti Fatimah	1A	P&#10;0081234003	Budi Santoso	4A	L"
                   className="w-full p-3 font-mono text-xs bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
+              {/* Success Result Banner */}
+              {bulkSuccessResult && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl flex items-center gap-2.5 animate-in fade-in">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <div>
+                    <p className="font-bold">
+                      ✔ Berhasil menyimpan {bulkSuccessResult.total} data siswa!
+                    </p>
+                    <p className="text-[11px] text-emerald-700">
+                      {bulkSuccessResult.added} siswa baru ditambahkan, {bulkSuccessResult.updated} siswa diperbarui.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Banner */}
               {bulkParseError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -916,21 +1118,22 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
               )}
 
               {/* Preview Parsed */}
-              {bulkParsedStudents.length > 0 && (
+              {bulkParsedStudents.length > 0 && !bulkSuccessResult && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-700">
-                      ✔ Siap Diimpor: {bulkParsedStudents.length} Siswa Terdeteksi
+                      ✔ Siap Disimpan: {bulkParsedStudents.length} Siswa Terdeteksi
                     </span>
                     <span className="text-slate-500 text-[11px]">
                       Periksa pratinjau sebelum menyimpan
                     </span>
                   </div>
 
-                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl">
+                  <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-xl shadow-2xs">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-100 text-slate-700 sticky top-0">
                         <tr>
+                          <th className="p-2 w-8">No</th>
                           <th className="p-2">NISN</th>
                           <th className="p-2">Nama</th>
                           <th className="p-2">Kelas</th>
@@ -938,20 +1141,36 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {bulkParsedStudents.slice(0, 15).map((st, i) => (
-                          <tr key={i} className="hover:bg-slate-50">
-                            <td className="p-2 font-mono">{st.nisn}</td>
-                            <td className="p-2 font-semibold">{st.name}</td>
-                            <td className="p-2">{st.classId}</td>
-                            <td className="p-2">{st.gender}</td>
-                          </tr>
-                        ))}
+                        {bulkParsedStudents.slice(0, 20).map((st, i) => {
+                          const classObj = classes.find((c) => c.id === st.classId);
+                          return (
+                            <tr key={i} className="hover:bg-slate-50">
+                              <td className="p-2 text-slate-400 font-bold">{i + 1}</td>
+                              <td className="p-2 font-mono font-bold text-slate-800">{st.nisn}</td>
+                              <td className="p-2 font-semibold text-slate-800">{st.name}</td>
+                              <td className="p-2 text-slate-600">
+                                {classObj?.name || st.classId}
+                              </td>
+                              <td className="p-2">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    st.gender === 'P'
+                                      ? 'bg-pink-100 text-pink-700'
+                                      : 'bg-blue-100 text-blue-700'
+                                  }`}
+                                >
+                                  {st.gender}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
-                  {bulkParsedStudents.length > 15 && (
+                  {bulkParsedStudents.length > 20 && (
                     <p className="text-[11px] text-slate-500 text-center">
-                      ... dan {bulkParsedStudents.length - 15} siswa lainnya.
+                      ... dan {bulkParsedStudents.length - 20} siswa lainnya.
                     </p>
                   )}
                 </div>
@@ -961,18 +1180,33 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
               <button
-                onClick={() => setIsBulkModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800"
+                type="button"
+                onClick={() => {
+                  setIsBulkModalOpen(false);
+                  setBulkSuccessResult(null);
+                  setBulkParseError('');
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
               >
-                Batal
+                {bulkSuccessResult ? 'Tutup' : 'Batal'}
               </button>
               <button
+                type="button"
                 onClick={handleConfirmBulkImport}
-                disabled={bulkParsedStudents.length === 0}
+                disabled={bulkParsedStudents.length === 0 || isSavingBulk}
                 className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
-                <CheckCircle className="w-4 h-4" />
-                <span>Simpan {bulkParsedStudents.length} Siswa</span>
+                {isSavingBulk ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan ke Sistem...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Simpan {bulkParsedStudents.length} Siswa</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

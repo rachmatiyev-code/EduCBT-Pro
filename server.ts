@@ -372,12 +372,21 @@ app.post('/api/data/school-profile', (req, res) => {
 });
 
 app.post('/api/data/master', (req, res) => {
-  const { teachers, students, classes, subjects } = req.body;
-  if (teachers) examDataStore.teachers = teachers;
-  if (students) examDataStore.students = students;
-  if (classes) examDataStore.classes = classes;
-  if (subjects) examDataStore.subjects = subjects;
-  return res.json({ success: true, message: 'Data master berhasil diperbarui.' });
+  try {
+    const { teachers, students, classes, subjects } = req.body || {};
+    if (teachers && Array.isArray(teachers)) examDataStore.teachers = teachers;
+    if (students && Array.isArray(students)) examDataStore.students = students;
+    if (classes && Array.isArray(classes)) examDataStore.classes = classes;
+    if (subjects && Array.isArray(subjects)) examDataStore.subjects = subjects;
+    return res.json({
+      success: true,
+      message: 'Data master berhasil diperbarui.',
+      studentsCount: examDataStore.students.length,
+      classesCount: examDataStore.classes.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menyimpan data master' });
+  }
 });
 
 app.post('/api/teacher/change-password', (req, res) => {
