@@ -37,7 +37,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   // Teacher login fields
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(teachers[0]?.id || '');
-  const [teacherPassword, setTeacherPassword] = useState('123456');
+  const [teacherPassword, setTeacherPassword] = useState('1234');
+  const [teacherError, setTeacherError] = useState('');
 
   const handleStudentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,10 +71,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   const handleTeacherSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setTeacherError('');
+
     const t = teachers.find((x) => x.id === selectedTeacherId) || teachers[0];
-    if (t) {
-      onLoginTeacher(t);
+    if (!t) {
+      setTeacherError('Pilih akun guru terlebih dahulu.');
+      return;
     }
+
+    const expectedPassword = t.password || '1234';
+    if (teacherPassword.trim() !== expectedPassword) {
+      setTeacherError('Kata sandi salah! Kata sandi bawaan adalah "1234" (atau kata sandi baru yang telah Anda atur).');
+      return;
+    }
+
+    onLoginTeacher(t);
   };
 
   return (
@@ -210,37 +222,54 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </p>
               </div>
 
+              {teacherError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{teacherError}</span>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-slate-700">
-                  Pilih Akun Guru / Pengawas
+                  Pilihan Akun: Guru / Admin
                 </label>
                 <select
                   value={selectedTeacherId}
                   onChange={(e) => setSelectedTeacherId(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 >
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.role.toUpperCase()})
-                    </option>
-                  ))}
+                  <optgroup label="Akun Guru Terdaftar">
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        Guru: {t.name} ({t.role.toUpperCase()})
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Kata Sandi
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Kata Sandi
+                  </label>
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    Bawaan: 1234
+                  </span>
+                </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="password"
                     value={teacherPassword}
                     onChange={(e) => setTeacherPassword(e.target.value)}
-                    placeholder="••••••"
-                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    placeholder="Masukkan kata sandi (1234)"
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-semibold"
                   />
                 </div>
+                <p className="text-[11px] text-slate-500">
+                  * Masukkan kata sandi <strong>1234</strong> atau kata sandi baru jika sudah diubah.
+                </p>
               </div>
 
               <button

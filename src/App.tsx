@@ -17,6 +17,7 @@ import {
   RefreshCw,
   CheckCircle2,
   ExternalLink,
+  KeyRound,
 } from 'lucide-react';
 import {
   SchoolProfile,
@@ -37,6 +38,7 @@ import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { AIPromptGeneratorModal } from './components/AIPromptGeneratorModal';
 import { StudentExamRoom } from './components/StudentExamRoom';
 import { LoginModal } from './components/LoginModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 export default function App() {
   // App-wide state
@@ -76,6 +78,7 @@ export default function App() {
   // Modals
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   // Load all initial data from backend
@@ -202,6 +205,16 @@ export default function App() {
             </button>
 
             <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+            {/* Change Password Button */}
+            <button
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              title="Ubah Kata Sandi Akun Guru / Admin"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden lg:inline">Ubah Kata Sandi</span>
+            </button>
 
             {/* User Profile & Logout */}
             <div className="flex items-center gap-2">
@@ -381,6 +394,25 @@ export default function App() {
           setActiveMenu('banks');
         }}
       />
+
+      {/* Change Password Modal */}
+      {currentUser.role === 'teacher' && (
+        <ChangePasswordModal
+          isOpen={isChangePasswordOpen}
+          onClose={() => setIsChangePasswordOpen(false)}
+          currentTeacher={currentUser.teacher}
+          onPasswordChanged={(updatedTeacher) => {
+            setCurrentUser({
+              ...currentUser,
+              teacher: updatedTeacher,
+            });
+            setTeachers((prev) =>
+              prev.map((t) => (t.id === updatedTeacher.id ? updatedTeacher : t))
+            );
+            loadInitialData();
+          }}
+        />
+      )}
     </div>
   );
 }

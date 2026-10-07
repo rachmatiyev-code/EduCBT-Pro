@@ -285,4 +285,17 @@ export const api = {
     });
     return res.json();
   },
+
+  async changeTeacherPassword(params: {
+    teacherId: string;
+    oldPassword?: string;
+    newPassword: string;
+  }) {
+    const res = await fetch('/api/teacher/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
 };

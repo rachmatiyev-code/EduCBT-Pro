@@ -82,6 +82,7 @@ export interface Teacher {
   email: string;
   role: 'admin' | 'guru';
   subjectIds: string[];
+  password?: string;
 }
 
 export interface Student {

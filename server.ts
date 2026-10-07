@@ -57,6 +57,7 @@ const examDataStore: {
       email: 'siti.nurhaliza@sman1prestasibangsa.sch.id',
       role: 'admin',
       subjectIds: ['SUB-01', 'SUB-02'],
+      password: '1234',
     },
     {
       id: 'T02',
@@ -65,6 +66,7 @@ const examDataStore: {
       email: 'ahmad.fauzi@sman1prestasibangsa.sch.id',
       role: 'guru',
       subjectIds: ['SUB-03', 'SUB-04'],
+      password: '1234',
     },
   ],
   classes: [
@@ -375,6 +377,30 @@ app.post('/api/data/master', (req, res) => {
   if (classes) examDataStore.classes = classes;
   if (subjects) examDataStore.subjects = subjects;
   return res.json({ success: true, message: 'Data master berhasil diperbarui.' });
+});
+
+app.post('/api/teacher/change-password', (req, res) => {
+  const { teacherId, oldPassword, newPassword } = req.body;
+  if (!teacherId || !newPassword) {
+    return res.status(400).json({ success: false, error: 'Data tidak lengkap.' });
+  }
+
+  const teacher = examDataStore.teachers.find((t) => t.id === teacherId);
+  if (!teacher) {
+    return res.status(404).json({ success: false, error: 'Akun guru tidak ditemukan.' });
+  }
+
+  const currentPass = teacher.password || '1234';
+  if (oldPassword && oldPassword !== currentPass) {
+    return res.status(400).json({ success: false, error: 'Kata sandi lama tidak sesuai.' });
+  }
+
+  teacher.password = newPassword.trim();
+  return res.json({
+    success: true,
+    message: 'Kata sandi berhasil diubah! Silakan gunakan kata sandi baru untuk login.',
+    teacher,
+  });
 });
 
 app.post('/api/data/question-banks', (req, res) => {

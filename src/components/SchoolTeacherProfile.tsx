@@ -11,9 +11,11 @@ import {
   MapPin,
   Shield,
   FileText,
+  KeyRound,
 } from 'lucide-react';
 import { SchoolProfile, Teacher, Subject } from '../types/cbt';
 import { api } from '../services/api';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface SchoolTeacherProfileProps {
   schoolProfile: SchoolProfile;
@@ -31,6 +33,7 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
   const [profile, setProfile] = useState<SchoolProfile>(schoolProfile);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [teacherToChangePassword, setTeacherToChangePassword] = useState<Teacher | null>(null);
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -247,6 +250,14 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
                 </div>
                 <h4 className="font-bold text-slate-800 text-sm">{t.name}</h4>
                 <p className="text-xs text-slate-500 mt-0.5">{t.email}</p>
+                <button
+                  type="button"
+                  onClick={() => setTeacherToChangePassword(t)}
+                  className="mt-2.5 px-3 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 hover:border-indigo-300 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                >
+                  <KeyRound className="w-3 h-3 text-indigo-600" />
+                  <span>Ubah Kata Sandi</span>
+                </button>
               </div>
 
               <div className="p-2 rounded-xl bg-white border border-slate-200">
@@ -256,6 +267,18 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      {teacherToChangePassword && (
+        <ChangePasswordModal
+          isOpen={true}
+          onClose={() => setTeacherToChangePassword(null)}
+          currentTeacher={teacherToChangePassword}
+          onPasswordChanged={() => {
+            onRefreshData();
+          }}
+        />
+      )}
     </div>
   );
 };
