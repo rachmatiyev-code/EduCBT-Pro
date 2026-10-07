@@ -157,9 +157,14 @@ export const api = {
           pointsEarned = qMaxPoints;
         }
       } else if (q.type === 'multiple_select') {
-        if (Array.isArray(studentAns) && Array.isArray(q.correctAnswer)) {
+        const rawCorrect = Array.isArray(q.correctAnswer)
+          ? q.correctAnswer
+          : typeof q.correctAnswer === 'string'
+          ? q.correctAnswer.split(/[,;]/).map((s: string) => s.trim())
+          : [];
+        if (Array.isArray(studentAns) && rawCorrect.length > 0) {
           const cleanStudent = studentAns.map((a: string) => a.split('.')[0].trim().toUpperCase()).sort();
-          const cleanCorrect = q.correctAnswer.map((a: string) => a.split('.')[0].trim().toUpperCase()).sort();
+          const cleanCorrect = rawCorrect.map((a: string) => a.split('.')[0].trim().toUpperCase()).sort();
           if (JSON.stringify(cleanStudent) === JSON.stringify(cleanCorrect)) {
             isCorrect = true;
             pointsEarned = qMaxPoints;

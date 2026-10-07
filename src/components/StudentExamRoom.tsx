@@ -64,6 +64,14 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
   // Countdown timer
   const [secondsRemaining, setSecondsRemaining] = useState(session.durationMinutes * 60);
 
+  // Stable refs for interval closures
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const questionsRef = useRef(questions);
+  questionsRef.current = questions;
+  const secondsRemainingRef = useRef(secondsRemaining);
+  secondsRemainingRef.current = secondsRemaining;
+
   // Initialize questions (optionally shuffled)
   useEffect(() => {
     let qList = [...bank.questions];
@@ -152,7 +160,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     return () => clearInterval(interval);
   }, [student, session, currentIndex, answers, questions.length, tabBlurCount, batteryLevel, submissionResult]);
 
-  // Timer interval
+  // Timer interval (runs stably without restarting on each answer click)
   useEffect(() => {
     if (submissionResult) return;
 
@@ -168,7 +176,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [submissionResult, answers]);
+  }, [submissionResult]);
 
   const formatTimer = (totalSec: number) => {
     const hours = Math.floor(totalSec / 3600);
@@ -203,7 +211,9 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     setShowConfirmSubmit(false);
 
     try {
-      const scoreData = api.calculateScore(questions, answers);
+      const currentAnswers = answersRef.current;
+      const currentQuestions = questionsRef.current;
+      const scoreData = api.calculateScore(currentQuestions, currentAnswers);
       const isPassed = scoreData.scorePercentage >= (bank.passingScore || 75);
 
       const submission: ExamSubmission = {
@@ -218,9 +228,9 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         scorePercentage: scoreData.scorePercentage,
         isPassed,
         tabBlurCount,
-        durationTakenSeconds: session.durationMinutes * 60 - secondsRemaining,
+        durationTakenSeconds: Math.max(session.durationMinutes * 60 - secondsRemainingRef.current, 0),
         syncedToDrive: false,
-        answers,
+        answers: currentAnswers,
         itemAnalysis: scoreData.itemAnalysis,
       };
 

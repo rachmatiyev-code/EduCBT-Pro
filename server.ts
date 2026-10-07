@@ -275,6 +275,7 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
               },
+              correctAnswer: { type: Type.STRING },
               explanation: { type: Type.STRING },
               points: { type: Type.NUMBER },
               matchingPairs: {
@@ -288,7 +289,7 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
                 },
               },
             },
-            required: ['number', 'type', 'question', 'points'],
+            required: ['number', 'type', 'question', 'points', 'correctAnswer'],
           },
         },
       },
@@ -314,13 +315,26 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
         options = ['Benar', 'Salah'];
       }
 
+      let parsedCorrect = q.correctAnswer;
+      if (qType === 'multiple_select') {
+        if (typeof parsedCorrect === 'string') {
+          parsedCorrect = parsedCorrect.split(/[,;]/).map((x: string) => x.trim().toUpperCase());
+        } else if (!Array.isArray(parsedCorrect)) {
+          parsedCorrect = ['A', 'B'];
+        }
+      } else if (qType === 'true_false') {
+        parsedCorrect = typeof parsedCorrect === 'string' && parsedCorrect.toLowerCase().includes('salah') ? 'Salah' : 'Benar';
+      } else if (!parsedCorrect) {
+        parsedCorrect = qType === 'multiple_choice' ? 'A' : 'Jawaban benar';
+      }
+
       return {
         id: q.id || `gen-${Date.now()}-${qNum}`,
         number: qNum,
         type: qType,
         question: q.question || `Pertanyaan nomor ${qNum}`,
         options: options || undefined,
-        correctAnswer: q.correctAnswer || (qType === 'multiple_choice' ? 'A' : qType === 'true_false' ? 'Benar' : 'Jawaban benar'),
+        correctAnswer: parsedCorrect,
         matchingPairs: q.matchingPairs || undefined,
         explanation: q.explanation || 'Pembahasan soal.',
         points: Number(q.points) || Math.round(100 / count),
