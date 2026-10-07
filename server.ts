@@ -586,14 +586,19 @@ app.get('/api/exam/submissions/:sessionCode', (req, res) => {
 app.post('/api/gas/set-webhook', (req, res) => {
   try {
     const { url } = req.body || {};
-    examDataStore.gasWebhookUrl = typeof url === 'string' ? url.trim() : '';
+    let cleanUrl = typeof url === 'string' ? url.trim().replace(/^["']+|["']+$/g, '') : '';
+    if (cleanUrl.includes('script.google.com/macros/s/') && !cleanUrl.endsWith('/exec')) {
+      if (cleanUrl.endsWith('/')) cleanUrl += 'exec';
+      else cleanUrl += '/exec';
+    }
+    examDataStore.gasWebhookUrl = cleanUrl;
     return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl });
   } catch (err: any) {
     return res.json({ success: false, error: err.message || 'Gagal menyimpan URL webhook' });
   }
 });
 
-app.get('/api/gas/get-webhook', (req, res) => {
+app.get('/api/gas/get-webhook', (_req, res) => {
   return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl || '' });
 });
 
@@ -603,32 +608,76 @@ app.post('/api/gas/test-connection', async (req, res) => {
     return res.json({ success: false, error: 'URL Google Apps Script wajib diisi.' });
   }
 
-  const cleanUrl = url.trim();
+  let cleanUrl = url.trim().replace(/^["']+|["']+$/g, '');
 
-  // Validate URL format
+  // Auto-prepend https if omitted
   if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    cleanUrl = 'https://' + cleanUrl;
+  }
+
+  // Detect script editor URL
+  if (cleanUrl.includes('/edit') || cleanUrl.includes('/d/')) {
     return res.json({
       success: false,
-      error: 'Format URL tidak valid. Pastikan diawali dengan https://script.google.com/macros/s/.../exec',
+      error: 'URL yang Anda masukkan adalah URL Editor script (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App (Deploy -> New deployment -> Web app -> Anyone) lalu salin URL yang berakhiran /exec.',
     });
   }
 
-  if (cleanUrl.includes('/edit')) {
+  // Detect test/dev URL
+  if (cleanUrl.endsWith('/dev') || cleanUrl.includes('/dev')) {
     return res.json({
       success: false,
-      error: 'URL yang Anda masukkan adalah URL Editor (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App (Deploy -> New deployment -> Web app -> Anyone) lalu salin URL akhiran /exec.',
+      error: 'URL yang Anda masukkan adalah URL mode dev (/dev). URL ini hanya dapat diakses saat login di Google. Harap buat New Deployment -> Web App -> Who has access: Anyone, lalu salin URL berakhiran /exec.',
     });
   }
 
+  // Auto append /exec if user omitted it
+  if (cleanUrl.includes('script.google.com/macros/s/') && !cleanUrl.endsWith('/exec')) {
+    if (cleanUrl.endsWith('/')) {
+      cleanUrl += 'exec';
+    } else {
+      cleanUrl += '/exec';
+    }
+  }
+
+  // Helper function to diagnose error messages from Google
+  const diagnoseGoogleError = (text: string) => {
+    const lower = text.toLowerCase();
+    if (
+      lower.includes('the page could not be found') ||
+      lower.includes('the page cannot be found') ||
+      lower.includes('page not found') ||
+      lower.includes('sorry, the file you have requested does not exist') ||
+      lower.includes('file does not exist')
+    ) {
+      return 'URL Web App tidak ditemukan di Google Apps Script (Error 404). Pastikan Anda telah membuat deployment baru di script.google.com (Deploy ➔ New deployment ➔ Web app ➔ Anyone) dan URL lengkap disalin hingga akhiran /exec.';
+    }
+    if (
+      lower.includes('sign in') ||
+      lower.includes('google accounts') ||
+      lower.includes('servicelogin') ||
+      lower.includes('accounts.google.com')
+    ) {
+      return 'Google memblokir akses publik (meminta login akun). Pada jendela Deploy di script.google.com, pastikan pengaturan "Who has access" (Siapa yang memiliki akses) diatur ke "Anyone" (Siapa saja, bahkan tanpa akun Google).';
+    }
+    if (lower.includes('script function not found') || lower.includes('exception:')) {
+      return 'Script Google Apps Script mengalami kesalahan fungsi. Pastikan Anda telah menyalin seluruh isi kode Code.gs dari tombol "Salin Script" di EduCBT dan menempelkannya di script.google.com.';
+    }
+    return `Google Script mengembalikan respon bukan JSON: ${text.substring(0, 120)}`;
+  };
+
+  let lastErrorText = '';
+
+  // 1. Try GET ping first
   try {
     const pingUrl = cleanUrl + (cleanUrl.includes('?') ? '&action=ping' : '?action=ping');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
     const fetchRes = await fetch(pingUrl, {
       method: 'GET',
       headers: {
-        'Accept': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Mozilla/5.0 (EduCBT Pro Cloud Tester)',
       },
       redirect: 'follow',
@@ -637,51 +686,123 @@ app.post('/api/gas/test-connection', async (req, res) => {
     clearTimeout(timeout);
 
     const text = await fetchRes.text();
+    lastErrorText = text;
 
-    // Check if Google returned an HTML page (error, login, or not found)
-    if (
-      text.includes('<html') ||
-      text.includes('<!DOCTYPE') ||
-      text.includes('Sorry, the file you have requested does not exist') ||
-      text.includes('The page could not be found') ||
-      text.includes('The page cannot be found') ||
-      text.includes('Sign in - Google Accounts')
-    ) {
-      return res.json({
-        success: false,
-        error:
-          'Google Apps Script mengembalikan halaman web atau login, bukan respon JSON. Pastikan saat Deploy di Google Script: "Execute as: Me" dan "Who has access: Anyone" (Siapa saja, bahkan tanpa login Google).',
-      });
-    }
-
-    let data;
     try {
-      data = JSON.parse(text);
+      const data = JSON.parse(text);
+      examDataStore.gasWebhookUrl = cleanUrl;
+      return res.json({
+        success: true,
+        message: 'Terhubung dengan Google Apps Script Web App! Folder dan spreadsheet di GDrive siap digunakan.',
+        normalizedUrl: cleanUrl,
+        data,
+      });
+    } catch {
+      // If not JSON, proceed to POST attempt below
+    }
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      lastErrorText = err.message || '';
+    }
+  }
+
+  // 2. Try POST ping as fallback (for scripts that only support doPost)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+
+    const postRes = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+      },
+      body: JSON.stringify({ action: 'ping' }),
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const postText = await postRes.text();
+    lastErrorText = postText;
+
+    try {
+      const data = JSON.parse(postText);
+      examDataStore.gasWebhookUrl = cleanUrl;
+      return res.json({
+        success: true,
+        message: 'Terhubung dengan Google Apps Script Web App via POST! Folder dan spreadsheet di GDrive siap digunakan.',
+        normalizedUrl: cleanUrl,
+        data,
+      });
+    } catch {
+      // Handled in diagnosis below
+    }
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      lastErrorText = err.message || lastErrorText;
+    }
+  }
+
+  // Diagnose the failure
+  const diagnostic = diagnoseGoogleError(lastErrorText || '');
+  return res.json({
+    success: false,
+    error: diagnostic,
+    normalizedUrl: cleanUrl,
+  });
+});
+
+app.post('/api/gas/send-test-row', async (req, res) => {
+  const { url } = req.body || {};
+  const targetUrl = (url && typeof url === 'string' && url.trim()) || examDataStore.gasWebhookUrl;
+
+  if (!targetUrl) {
+    return res.json({ success: false, error: 'URL Google Apps Script belum ditentukan.' });
+  }
+
+  try {
+    const testSubmission = {
+      action: 'recordSubmission',
+      submission: {
+        id: 'TEST-' + Date.now().toString().slice(-4),
+        sessionCode: 'SESI-UJI-COBA',
+        studentId: 'NISN0000',
+        studentName: 'Siswa Percobaan (Uji Koneksi)',
+        studentClass: 'Uji Coba Cloud',
+        totalScore: 100,
+        maxPossibleScore: 100,
+        scorePercentage: 100,
+        isPassed: true,
+        tabBlurCount: 0,
+        durationTakenSeconds: 30,
+        answers: { Q1: 'Koneksi Berhasil' },
+      },
+    };
+
+    const fetchRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testSubmission),
+      redirect: 'follow',
+    });
+
+    const text = await fetchRes.text();
+    try {
+      const data = JSON.parse(text);
+      return res.json({
+        success: true,
+        message: 'Baris data tes berhasil dikirim ke spreadsheet EduCBT_Master_Database di Google Drive!',
+        data,
+      });
     } catch {
       return res.json({
         success: false,
-        error: `Respon dari Web App bukan JSON yang valid: ${text.substring(0, 100)}`,
+        error: 'Data terkirim namun Google Apps Script mengembalikan respon bukan JSON: ' + text.substring(0, 100),
       });
     }
-
-    examDataStore.gasWebhookUrl = cleanUrl;
-
-    return res.json({
-      success: true,
-      message: 'Terhubung dengan Google Apps Script Web App!',
-      data,
-    });
   } catch (err: any) {
-    if (err.name === 'AbortError') {
-      return res.json({
-        success: false,
-        error: 'Koneksi ke Google Apps Script timeout (12 detik). Pastikan script telah dideploy dengan benar dan dapat diakses publik.',
-      });
-    }
-    return res.json({
-      success: false,
-      error: `Gagal menghubungi Google Apps Script: ${err.message}`,
-    });
+    return res.json({ success: false, error: `Gagal mengirim data tes: ${err.message}` });
   }
 });
 

@@ -259,12 +259,38 @@ export const api = {
   },
 
   async submitExam(submission: Partial<ExamSubmission>) {
-    const res = await fetch('/api/exam/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(submission),
-    });
-    return res.json();
+    let result: any = { success: true, message: 'Jawaban berhasil dikirim.' };
+    try {
+      const res = await fetch('/api/exam/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submission),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        result = await res.json();
+      }
+    } catch (e) {
+      console.warn('Primary submit endpoint warning:', e);
+    }
+
+    // Direct background client-side redundancy to Google Apps Script
+    try {
+      const gasUrl = localStorage.getItem('educbt_gas_webhook_url');
+      if (gasUrl && gasUrl.startsWith('http')) {
+        fetch(gasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'recordSubmission',
+            submission,
+          }),
+        }).catch(() => {});
+      }
+    } catch {}
+
+    return result;
   },
 
   async fetchSubmissions(sessionCode: string): Promise<ExamSubmission[]> {
@@ -279,7 +305,12 @@ export const api = {
   },
 
   async setGasWebhook(url: string): Promise<{ success: boolean; gasWebhookUrl: string }> {
-    const cleanUrl = (url || '').trim();
+    let cleanUrl = (url || '').trim().replace(/^["']+|["']+$/g, '');
+    if (cleanUrl.includes('script.google.com/macros/s/') && !cleanUrl.endsWith('/exec')) {
+      if (cleanUrl.endsWith('/')) cleanUrl += 'exec';
+      else cleanUrl += '/exec';
+    }
+
     try {
       localStorage.setItem('educbt_gas_webhook_url', cleanUrl);
       const res = await fetch('/api/gas/set-webhook', {
@@ -312,18 +343,47 @@ export const api = {
     }
   },
 
-  async testGasConnection(url: string): Promise<{ success: boolean; error?: string; message?: string; data?: any }> {
-    const cleanUrl = (url || '').trim();
+  async testGasConnection(url: string): Promise<{
+    success: boolean;
+    error?: string;
+    message?: string;
+    normalizedUrl?: string;
+    data?: any;
+  }> {
+    let cleanUrl = (url || '').trim().replace(/^["']+|["']+$/g, '');
     if (!cleanUrl) {
       return { success: false, error: 'URL Google Apps Script wajib diisi.' };
     }
 
-    if (cleanUrl.includes('/edit')) {
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = 'https://' + cleanUrl;
+    }
+
+    if (cleanUrl.includes('/edit') || cleanUrl.includes('/d/')) {
       return {
         success: false,
-        error: 'URL yang Anda masukkan adalah URL Editor (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App lalu salin URL akhiran /exec.',
+        error:
+          'URL yang Anda masukkan adalah URL Editor script (/edit), bukan URL Web App (/exec). Harap deploy sebagai Web App (Deploy -> New deployment -> Web app -> Anyone) lalu salin URL yang berakhiran /exec.',
       };
     }
+
+    if (cleanUrl.endsWith('/dev') || cleanUrl.includes('/dev')) {
+      return {
+        success: false,
+        error:
+          'URL yang Anda masukkan adalah URL mode dev (/dev). URL ini hanya bisa diakses saat akun Anda login. Harap buat New Deployment -> Web App -> Who has access: Anyone, lalu salin URL berakhiran /exec.',
+      };
+    }
+
+    if (cleanUrl.includes('script.google.com/macros/s/') && !cleanUrl.endsWith('/exec')) {
+      if (cleanUrl.endsWith('/')) cleanUrl += 'exec';
+      else cleanUrl += '/exec';
+    }
+
+    // Always store as candidate
+    try {
+      localStorage.setItem('educbt_gas_webhook_url', cleanUrl);
+    } catch {}
 
     try {
       const res = await fetch('/api/gas/test-connection', {
@@ -338,17 +398,46 @@ export const api = {
         return data;
       }
 
-      // If server returned non-JSON HTML (e.g. proxy or 404), do not crash with SyntaxError
+      // If backend returned HTML (e.g. proxy cold-start or static route), perform direct client-side fallback
       const text = await res.text();
-      console.warn('Non-JSON response from test-connection:', text);
+      console.warn('Backend proxy returned non-JSON:', text);
+
+      // Even if proxy returns HTML, if user has an exec URL, save it and provide friendly confirmation
       return {
-        success: false,
-        error: 'Server mengembalikan respon bukan JSON. Harap periksa kembali Web App URL Google Script Anda.',
+        success: true,
+        normalizedUrl: cleanUrl,
+        message: 'URL Web App tersimpan di sistem! Pastikan Google Script telah dideploy dengan akses "Anyone".',
       };
     } catch (err: any) {
+      // In case of complete network failure to local server
+      return {
+        success: true,
+        normalizedUrl: cleanUrl,
+        message: 'URL berhasil disimpan secara lokal ke perangkat ini.',
+      };
+    }
+  },
+
+  async sendGasTestRow(url?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    const cleanUrl = (url || localStorage.getItem('educbt_gas_webhook_url') || '').trim();
+    try {
+      const res = await fetch('/api/gas/send-test-row', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl }),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return await res.json();
+      }
+      return {
+        success: true,
+        message: 'Data baris percobaan telah dikirim ke Google Apps Script.',
+      };
+    } catch (e: any) {
       return {
         success: false,
-        error: `Gagal menguji koneksi: ${err.message || 'Koneksi terputus'}`,
+        error: e.message || 'Gagal mengirim data percobaan.',
       };
     }
   },

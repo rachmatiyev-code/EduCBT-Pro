@@ -4,15 +4,16 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
  * 
  * CARA DEPLOY:
  * 1. Buka https://script.google.com/ lalu buat Proyek Baru ("EduCBT Pro Cloud")
- * 2. Hapus seluruh isi kode bawaan, lalu paste (tempel) seluruh kode ini.
- * 3. Klik tombol "Deploy" (Terapkan) di kanan atas -> Pilih "New deployment" (Deployment baru).
- * 4. Pilih tipe: "Web app" (Aplikasi Web).
- * 5. Pengaturan:
+ * 2. Hapus seluruh isi kode bawaan (myFunction), lalu paste (tempel) seluruh kode ini.
+ * 3. Simpan proyek (ikon disket atau Ctrl+S).
+ * 4. Klik tombol "Deploy" (Terapkan) di kanan atas -> Pilih "New deployment" (Deployment baru).
+ * 5. Klik ikon gerigi (Select type) -> Pilih "Web app" (Aplikasi Web).
+ * 6. Pengaturan Deployment (SANGAT PENTING):
  *    - Description: EduCBT Webhook
  *    - Execute as: "Me" (Email Google Anda)
- *    - Who has access: "Anyone" (Siapa saja - agar aplikasi ujian siswa dapat mengirim data)
- * 6. Klik "Deploy", izinkan hak akses Google Drive & Spreadsheet.
- * 7. Salin "Web app URL" (akhiran /exec) dan tempelkan ke menu "Integrasi GDrive & Sheets" di aplikasi EduCBT.
+ *    - Who has access: "Anyone" (Siapa saja - agar sistem dapat menyimpan data tanpa login)
+ * 7. Klik "Deploy", berikan izin akses (Authorize access -> Pilih akun -> Advanced -> Go to script (unsafe) -> Allow).
+ * 8. Salin "Web app URL" (yang berakhiran /exec) dan tempelkan ke kolom Integrasi di aplikasi EduCBT.
  */
 
 const FOLDER_NAME = "EduCBT_Cloud_Database";
@@ -70,16 +71,21 @@ function setupInitialSheets(ss) {
 
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || "ping";
+  var callback = e && e.parameter && e.parameter.callback;
   
-  if (action === "ping") {
-    return ContentService.createTextOutput(JSON.stringify({
-      status: "success",
-      message: "EduCBT GAS Backend is connected and online!",
-      timestamp: new Date().toISOString()
-    })).setMimeType(ContentService.MimeType.JSON);
+  var result = {
+    status: "success",
+    message: "EduCBT GAS Backend is connected and online!",
+    action: action,
+    timestamp: new Date().toISOString()
+  };
+
+  if (callback) {
+    return ContentService.createTextOutput(callback + "(" + JSON.stringify(result) + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-  
-  return ContentService.createTextOutput(JSON.stringify({ status: "success", action: action }))
+
+  return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -88,21 +94,38 @@ function doPost(e) {
   lock.tryLock(10000);
   
   try {
-    var data = JSON.parse(e.postData.contents);
-    var action = data.action;
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch (err) {
+        data = {};
+      }
+    }
+    
+    var action = data.action || (e && e.parameter && e.parameter.action) || "ping";
+    
+    if (action === "ping") {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Koneksi Google Apps Script berhasil terverifikasi!",
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
     var ss = getOrCreateMasterSpreadsheet();
     
     if (action === "recordSubmission") {
-      var sub = data.submission;
+      var sub = data.submission || {};
       var subSheet = ss.getSheetByName("Submissions");
       
       subSheet.appendRow([
         new Date().toISOString(),
-        sub.id || "",
-        sub.sessionCode || "",
-        sub.studentId || "",
-        sub.studentName || "",
-        sub.studentClass || "",
+        sub.id || ("SUB-" + new Date().getTime()),
+        sub.sessionCode || "-",
+        sub.studentId || "-",
+        sub.studentName || "Uji Coba",
+        sub.studentClass || "-",
         sub.totalScore || 0,
         sub.maxPossibleScore || 100,
         sub.scorePercentage || 0,
@@ -130,8 +153,11 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "success",
+      action: action,
+      timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({
       status: "error",
