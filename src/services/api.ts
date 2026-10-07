@@ -298,4 +298,19 @@ export const api = {
     });
     return res.json();
   },
+
+  async registerTeacher(teacherData: {
+    name: string;
+    nip?: string;
+    email?: string;
+    role?: 'admin' | 'guru';
+    password?: string;
+  }) {
+    const res = await fetch('/api/teacher/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(teacherData),
+    });
+    return res.json();
+  },
 };

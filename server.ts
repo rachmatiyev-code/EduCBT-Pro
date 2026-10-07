@@ -403,6 +403,31 @@ app.post('/api/teacher/change-password', (req, res) => {
   });
 });
 
+app.post('/api/teacher/register', (req, res) => {
+  const { name, nip, email, role, password, subjectIds } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, error: 'Nama guru wajib diisi.' });
+  }
+
+  const newTeacher = {
+    id: `T${Date.now()}`,
+    name: name.trim(),
+    nip: nip ? nip.trim() : '-',
+    email: email ? email.trim() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
+    role: role === 'admin' ? 'admin' : 'guru',
+    subjectIds: Array.isArray(subjectIds) ? subjectIds : ['SUB-01'],
+    password: password && password.trim() ? password.trim() : '1234',
+  };
+
+  examDataStore.teachers.push(newTeacher);
+  return res.json({
+    success: true,
+    message: 'Akun guru baru berhasil ditambahkan!',
+    teacher: newTeacher,
+    teachers: examDataStore.teachers,
+  });
+});
+
 app.post('/api/data/question-banks', (req, res) => {
   const bank = req.body;
   if (!bank.id) {

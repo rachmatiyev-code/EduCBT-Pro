@@ -139,6 +139,16 @@ export default function App() {
         sessions={examSessions}
         onLoginTeacher={handleLoginTeacher}
         onLoginStudent={handleLoginStudent}
+        onAddTeacher={(newTeacher) => {
+          setTeachers((prev) => [...prev, newTeacher]);
+          loadInitialData();
+        }}
+        onTeacherPasswordChanged={(updatedTeacher) => {
+          setTeachers((prev) =>
+            prev.map((t) => (t.id === updatedTeacher.id ? updatedTeacher : t))
+          );
+          loadInitialData();
+        }}
       />
     );
   }
