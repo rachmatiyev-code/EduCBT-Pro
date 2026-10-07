@@ -1,0 +1,6 @@
+{
+  "name": "EduCBT Pro - Ujian Online & AI Generator",
+  "description": "Platform ujian online terpadu dengan generator soal AI Gemini, live monitoring pengawas, sinkronisasi Google Drive & Spreadsheet, dan analisis statistik real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
