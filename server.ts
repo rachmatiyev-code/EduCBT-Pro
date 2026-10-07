@@ -13,6 +13,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Initialize Google GenAI
 const ai = new GoogleGenAI({
@@ -380,52 +381,60 @@ app.post('/api/data/master', (req, res) => {
 });
 
 app.post('/api/teacher/change-password', (req, res) => {
-  const { teacherId, oldPassword, newPassword } = req.body;
-  if (!teacherId || !newPassword) {
-    return res.status(400).json({ success: false, error: 'Data tidak lengkap.' });
-  }
+  try {
+    const { teacherId, oldPassword, newPassword } = req.body || {};
+    if (!teacherId || !newPassword) {
+      return res.status(400).json({ success: false, error: 'Data tidak lengkap.' });
+    }
 
-  const teacher = examDataStore.teachers.find((t) => t.id === teacherId);
-  if (!teacher) {
-    return res.status(404).json({ success: false, error: 'Akun guru tidak ditemukan.' });
-  }
+    const teacher = examDataStore.teachers.find((t) => t.id === teacherId);
+    if (!teacher) {
+      return res.status(404).json({ success: false, error: 'Akun guru tidak ditemukan.' });
+    }
 
-  const currentPass = teacher.password || '1234';
-  if (oldPassword && oldPassword !== currentPass) {
-    return res.status(400).json({ success: false, error: 'Kata sandi lama tidak sesuai.' });
-  }
+    const currentPass = teacher.password || '1234';
+    if (oldPassword && oldPassword !== currentPass) {
+      return res.status(400).json({ success: false, error: 'Kata sandi lama tidak sesuai.' });
+    }
 
-  teacher.password = newPassword.trim();
-  return res.json({
-    success: true,
-    message: 'Kata sandi berhasil diubah! Silakan gunakan kata sandi baru untuk login.',
-    teacher,
-  });
+    teacher.password = newPassword.trim();
+    return res.json({
+      success: true,
+      message: 'Kata sandi berhasil diubah! Silakan gunakan kata sandi baru untuk login.',
+      teacher,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal mengubah kata sandi' });
+  }
 });
 
 app.post('/api/teacher/register', (req, res) => {
-  const { name, nip, email, role, password, subjectIds } = req.body;
-  if (!name || !name.trim()) {
-    return res.status(400).json({ success: false, error: 'Nama guru wajib diisi.' });
+  try {
+    const { name, nip, email, role, password, subjectIds } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Nama guru wajib diisi.' });
+    }
+
+    const newTeacher = {
+      id: `T${Date.now()}`,
+      name: name.trim(),
+      nip: nip ? nip.trim() : '-',
+      email: email ? email.trim() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
+      role: role === 'admin' ? 'admin' : 'guru',
+      subjectIds: Array.isArray(subjectIds) ? subjectIds : ['SUB-01'],
+      password: password && password.trim() ? password.trim() : '1234',
+    };
+
+    examDataStore.teachers.push(newTeacher);
+    return res.json({
+      success: true,
+      message: 'Akun guru baru berhasil ditambahkan!',
+      teacher: newTeacher,
+      teachers: examDataStore.teachers,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal mendaftar guru' });
   }
-
-  const newTeacher = {
-    id: `T${Date.now()}`,
-    name: name.trim(),
-    nip: nip ? nip.trim() : '-',
-    email: email ? email.trim() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
-    role: role === 'admin' ? 'admin' : 'guru',
-    subjectIds: Array.isArray(subjectIds) ? subjectIds : ['SUB-01'],
-    password: password && password.trim() ? password.trim() : '1234',
-  };
-
-  examDataStore.teachers.push(newTeacher);
-  return res.json({
-    success: true,
-    message: 'Akun guru baru berhasil ditambahkan!',
-    teacher: newTeacher,
-    teachers: examDataStore.teachers,
-  });
 });
 
 app.post('/api/data/question-banks', (req, res) => {
