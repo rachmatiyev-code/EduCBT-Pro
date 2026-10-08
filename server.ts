@@ -385,14 +385,14 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
     let response;
     try {
       response = await client.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: promptText,
         config: generateConfig,
       });
     } catch (primaryErr: any) {
-      console.warn('Primary 3.8-flash failed, falling back to 2.5-flash:', primaryErr.message);
+      console.warn('Primary 3.1-flash-lite failed, trying 3.8-flash:', primaryErr.message);
       response = await client.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: promptText,
         config: generateConfig,
       });
@@ -497,18 +497,18 @@ app.post('/api/gemini/test-key', async (req, res) => {
     const { apiKey } = req.body || {};
     const client = getGenAIClient(apiKey);
     let text = '';
-    let modelUsed = 'gemini-3.8-flash';
+    let modelUsed = 'gemini-3.1-flash-lite';
     try {
       const result = await client.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: 'Tuliskan hanya satu kata sambutan singkat dalam Bahasa Indonesia: Sukses',
       });
       text = result.text || '';
     } catch (primaryErr: any) {
-      console.warn('Primary model 3.8-flash retry with 2.5-flash:', primaryErr.message);
-      modelUsed = 'gemini-2.5-flash';
+      console.warn('3.1-flash-lite failed, trying 3.8-flash:', primaryErr.message);
+      modelUsed = 'gemini-3.8-flash';
       const result = await client.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: 'Tuliskan hanya satu kata sambutan singkat dalam Bahasa Indonesia: Sukses',
       });
       text = result.text || '';

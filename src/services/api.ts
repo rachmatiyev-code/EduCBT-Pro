@@ -156,6 +156,7 @@ export const api = {
     return res.json();
   },
 
+  // AI Question Generation Engine with Dual-Engine (Direct Google API & Backend Proxy)
   async generateQuestionsWithAI(params: {
     subject: string;
     gradeLevel: string;
@@ -165,21 +166,195 @@ export const api = {
     questionCount: number;
     customPrompt?: string;
     apiKey?: string;
-  }) {
-    const effectiveApiKey = params.apiKey || localStorage.getItem('educbt_gemini_api_key') || undefined;
-    const res = await fetch('/api/gemini/generate-questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...params,
-        apiKey: effectiveApiKey,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Gagal generate soal AI');
+  }): Promise<QuestionItem[]> {
+    const effectiveApiKey =
+      (params.apiKey && params.apiKey.trim()) ||
+      localStorage.getItem('educbt_gemini_api_key')?.trim() ||
+      '';
+
+    const count = Math.min(Math.max(Number(params.questionCount) || 5, 1), 50);
+
+    const promptText = `
+Anda adalah seorang pakar kurikulum dan penyusun soal evaluasi pendidikan Kurikulum Merdeka nasional tingkat tinggi.
+Tugas Anda adalah menyusun persis ${count} butir soal ujian berkualitas tinggi berdasarkan spesifikasi berikut:
+
+- Mata Pelajaran: ${params.subject || 'Umum'}
+- Jenjang / Kelas: Kelas ${params.gradeLevel || '10'}
+- Topik / Materi: ${params.topic || 'Komprehensif'}
+- Tingkat Kesulitan: ${params.difficulty || 'Campuran (Mudah, Sedang, HOTS)'}
+- Bentuk Soal: ${Array.isArray(params.questionTypes) && params.questionTypes.length > 0 ? params.questionTypes.join(', ') : 'Pilihan Ganda'}
+- Instruksi Khusus: ${params.customPrompt || 'Buat soal berbobot, kontekstual, stimulus bacaan relevan, dan kunci jawaban jelas.'}
+
+PENTING ATURAN FORMAT OUTPUT:
+Keluarkan HANYA JSON array murni tanpa markdown pembungkus tambahan:
+[
+  {
+    "id": "q-1",
+    "number": 1,
+    "type": "multiple_choice",
+    "question": "Teks soal lengkap termasuk stimulus jika ada",
+    "options": ["A. Opsi A", "B. Opsi B", "C. Opsi C", "D. Opsi D"],
+    "correctAnswer": "A",
+    "explanation": "Pembahasan rinci",
+    "points": 20
+  }
+]
+Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_choice", "multiple_select", "true_false", "matching", "short_answer", "essay"), question, correctAnswer, points, dan options jika multiple choice.
+`;
+
+    const normalizeQuestions = (rawText: string): QuestionItem[] => {
+      let clean = rawText.trim();
+      if (clean.startsWith('```json')) {
+        clean = clean.replace(/^```json/, '').replace(/```$/, '').trim();
+      } else if (clean.startsWith('```')) {
+        clean = clean.replace(/^```/, '').replace(/```$/, '').trim();
+      }
+      const firstBracket = clean.indexOf('[');
+      const lastBracket = clean.lastIndexOf(']');
+      if (firstBracket !== -1 && lastBracket !== -1) {
+        clean = clean.substring(firstBracket, lastBracket + 1);
+      }
+
+      let parsed = JSON.parse(clean);
+      if (!Array.isArray(parsed)) {
+        throw new Error('Format respon AI bukan berupa array butir soal.');
+      }
+
+      return parsed.map((q: any, idx: number) => {
+        const qNum = idx + 1;
+        let qType = q.type || 'multiple_choice';
+        if (typeof qType === 'string') {
+          const l = qType.toLowerCase().replace(/[\s_-]+/g, '');
+          if (l.includes('select') || l.includes('kompleks')) qType = 'multiple_select';
+          else if (l.includes('true') || l.includes('benar') || l.includes('salah')) qType = 'true_false';
+          else if (l.includes('match') || l.includes('jodoh')) qType = 'matching';
+          else if (l.includes('short') || l.includes('singkat') || l.includes('isian')) qType = 'short_answer';
+          else if (l.includes('essay') || l.includes('uraian')) qType = 'essay';
+          else qType = 'multiple_choice';
+        } else {
+          qType = 'multiple_choice';
+        }
+
+        let options = q.options;
+        if (qType === 'multiple_choice' || qType === 'multiple_select') {
+          if (!options || !Array.isArray(options) || options.length < 2) {
+            options = ['A. Pilihan A', 'B. Pilihan B', 'C. Pilihan C', 'D. Pilihan D'];
+          }
+        } else if (qType === 'true_false') {
+          options = ['Benar', 'Salah'];
+        }
+
+        let parsedCorrect = q.correctAnswer;
+        if (qType === 'multiple_select') {
+          if (typeof parsedCorrect === 'string') {
+            parsedCorrect = parsedCorrect.split(/[,;]/).map((x: string) => x.trim().toUpperCase());
+          } else if (!Array.isArray(parsedCorrect)) {
+            parsedCorrect = ['A', 'B'];
+          }
+        } else if (qType === 'true_false') {
+          parsedCorrect =
+            typeof parsedCorrect === 'string' && parsedCorrect.toLowerCase().includes('salah')
+              ? 'Salah'
+              : 'Benar';
+        } else if (!parsedCorrect) {
+          parsedCorrect = qType === 'multiple_choice' ? 'A' : 'Jawaban benar';
+        }
+
+        return {
+          id: q.id || `gen-${Date.now()}-${qNum}`,
+          number: qNum,
+          type: qType,
+          question: q.question || `Pertanyaan butir nomor ${qNum}`,
+          options: options || undefined,
+          correctAnswer: parsedCorrect,
+          matchingPairs: q.matchingPairs || undefined,
+          explanation: q.explanation || 'Pembahasan kunci jawaban.',
+          points: Number(q.points) || Math.round(100 / count),
+        };
+      });
+    };
+
+    // 1. Direct Browser Client Call when user enters their Gemini API key
+    if (effectiveApiKey) {
+      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+      for (const m of modelsToTry) {
+        try {
+          const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(
+            effectiveApiKey
+          )}`;
+          const directRes = await fetch(directUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+              },
+            }),
+          });
+
+          const directText = await directRes.text();
+          try {
+            const directJson = JSON.parse(directText);
+            if (directJson.candidates && directJson.candidates[0]?.content?.parts[0]?.text) {
+              const questionsRaw = directJson.candidates[0].content.parts[0].text;
+              const result = normalizeQuestions(questionsRaw);
+              if (result && result.length > 0) {
+                return result;
+              }
+            }
+            if (directJson.error) {
+              console.warn(`Direct model ${m} error:`, directJson.error.message);
+            }
+          } catch (pe) {
+            console.warn(`Direct model ${m} parse error:`, pe);
+          }
+        } catch (callErr) {
+          console.warn(`Direct call to ${m} network failure:`, callErr);
+        }
+      }
     }
-    return data.questions as QuestionItem[];
+
+    // 2. Server Proxy Route (with safe non-JSON handling)
+    try {
+      const res = await fetch('/api/gemini/generate-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...params,
+          apiKey: effectiveApiKey || undefined,
+        }),
+      });
+
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Non-JSON response, like Cloud Run HTML error
+        throw new Error(
+          'Server proxy sedang sibuk atau waktu tunggu habis. Pastikan Gemini API Key Anda telah diisi pada menu "Gemini API Key" di navigasi atas.'
+        );
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Gagal menghasilkan butir soal dari AI Gemini.');
+      }
+
+      if (Array.isArray(data.questions) && data.questions.length > 0) {
+        return data.questions as QuestionItem[];
+      }
+    } catch (serverErr: any) {
+      if (effectiveApiKey) {
+        throw new Error(`Gagal memproses soal AI: ${serverErr.message}`);
+      } else {
+        throw new Error(
+          'Layanan AI memerlukan API Key pribadi. Silakan masukkan Gemini API Key gratis Anda pada menu "Gemini API Key" di pojok kanan atas.'
+        );
+      }
+    }
+
+    throw new Error('Tidak ada butir soal yang berhasil dihasilkan. Silakan coba kembali.');
   },
 
   async sendProctorHeartbeat(payload: Partial<ProctorPing>) {
@@ -685,14 +860,62 @@ export const api = {
     error?: string;
   }> {
     const keyToTest = apiKey !== undefined ? apiKey.trim() : (localStorage.getItem('educbt_gemini_api_key') || '');
+    if (!keyToTest) {
+      return { success: false, error: 'API Key wajib diisi untuk melakukan pengujian koneksi.' };
+    }
+
+    // Direct Google Gemini API test first (fastest, no proxy delay)
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(
+          keyToTest
+        )}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Jawab satu kata: Sukses' }] }],
+          }),
+        }
+      );
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        if (data && data.candidates && data.candidates.length > 0) {
+          return {
+            success: true,
+            message: 'Koneksi ke Google Gemini AI (Model: gemini-3.1-flash-lite) Berhasil & Aktif!',
+            sampleResponse: data.candidates[0].content?.parts[0]?.text?.trim() || 'Sukses',
+          };
+        }
+        if (data && data.error) {
+          return {
+            success: false,
+            error: data.error.message || 'API Key tidak valid atau tidak memiliki kuota.',
+          };
+        }
+      } catch {}
+    } catch (directErr: any) {
+      console.warn('Direct key test failed, attempting backend test:', directErr);
+    }
+
+    // Fallback to backend test
     try {
       const res = await fetch('/api/gemini/test-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey: keyToTest }),
       });
-      const data = await res.json();
-      return data;
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        return data;
+      } catch {
+        return {
+          success: false,
+          error: 'Respon server bukan JSON. Periksa kembali jaringan atau API Key Anda.',
+        };
+      }
     } catch (err: any) {
       return {
         success: false,
