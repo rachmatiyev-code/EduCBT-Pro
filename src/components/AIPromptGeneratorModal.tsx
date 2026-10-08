@@ -80,8 +80,14 @@ export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
       setGeneratedQuestions(questions);
     } catch (err: any) {
       let msg = err.message || 'Gagal generate soal dari AI Gemini.';
-      if (msg.includes('Unexpected token') || msg.includes('is not valid JSON') || msg.includes('The page c')) {
-        msg = 'Waktu tunggu server proxy habis atau respon tidak valid. Jika Anda memiliki Gemini API Key pribadi, silakan klik tombol "Set Gemini API Key" di pojok kanan atas untuk koneksi langsung tanpa hambatan.';
+      if (
+        msg.includes('Unexpected token') ||
+        msg.includes('is not valid JSON') ||
+        msg.includes('The page c') ||
+        msg.includes('SyntaxError')
+      ) {
+        msg =
+          'Waktu tunggu server proxy habis atau respon tidak berformat JSON. Silakan coba kembali dengan jumlah soal 5–10 butir untuk hasil tercepat dan paling stabil.';
       }
       setErrorMsg(msg);
     } finally {

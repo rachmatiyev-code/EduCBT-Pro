@@ -350,36 +350,6 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
     const client = getGenAIClient(apiKey || (req.headers['x-gemini-api-key'] as string));
     const generateConfig = {
       responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            number: { type: Type.INTEGER },
-            type: { type: Type.STRING },
-            question: { type: Type.STRING },
-            options: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            correctAnswer: { type: Type.STRING },
-            explanation: { type: Type.STRING },
-            points: { type: Type.NUMBER },
-            matchingPairs: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  left: { type: Type.STRING },
-                  right: { type: Type.STRING },
-                },
-              },
-            },
-          },
-          required: ['number', 'type', 'question', 'points', 'correctAnswer'],
-        },
-      },
     };
 
     let response;
@@ -391,15 +361,52 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
       });
     } catch (primaryErr: any) {
       console.warn('Primary 3.1-flash-lite failed, trying 3.8-flash:', primaryErr.message);
-      response = await client.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: promptText,
-        config: generateConfig,
-      });
+      try {
+        response = await client.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: promptText,
+          config: generateConfig,
+        });
+      } catch (secondaryErr: any) {
+        console.error('Secondary 3.8-flash also failed:', secondaryErr.message);
+        throw new Error(secondaryErr.message || primaryErr.message || 'Gagal menghubungi model Gemini.');
+      }
     }
 
-    const rawText = response.text || '[]';
-    let questions = JSON.parse(rawText);
+    let rawText = (response.text || '[]').trim();
+    if (rawText.startsWith('```json')) {
+      rawText = rawText.replace(/^```json/, '').replace(/```$/, '').trim();
+    } else if (rawText.startsWith('```')) {
+      rawText = rawText.replace(/^```/, '').replace(/```$/, '').trim();
+    }
+    const firstBracket = rawText.indexOf('[');
+    const lastBracket = rawText.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket !== -1) {
+      rawText = rawText.substring(firstBracket, lastBracket + 1);
+    }
+
+    let questions: any[] = [];
+    try {
+      const parsed = JSON.parse(rawText);
+      if (Array.isArray(parsed)) {
+        questions = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        questions =
+          parsed.questions ||
+          parsed.data ||
+          parsed.items ||
+          parsed.soal ||
+          (Object.values(parsed).find(Array.isArray) as any[]) ||
+          [];
+      }
+    } catch (parseErr: any) {
+      console.warn('Failed to parse Gemini response text as JSON:', rawText.slice(0, 300));
+      throw new Error('Respon dari Gemini tidak berformat JSON yang valid. Silakan coba kembali.');
+    }
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      throw new Error('Tidak ada butir soal yang berhasil disusun oleh AI. Silakan coba kembali.');
+    }
 
     // Normalize & validate questions
     questions = questions.map((q: any, idx: number) => {
@@ -451,9 +458,13 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
     });
   } catch (err: any) {
     console.error('Error in /api/gemini/generate-questions:', err);
+    let errMsg = err.message || 'Gagal memproses pembuatan soal dengan AI Gemini.';
+    if (errMsg.includes('Unexpected token') || errMsg.includes('is not valid JSON') || errMsg.includes('The page c')) {
+      errMsg = 'Koneksi ke server AI terputus atau waktu tunggu habis. Silakan coba kembali dengan jumlah soal 5–10 butir.';
+    }
     return res.status(500).json({
       success: false,
-      error: err.message || 'Gagal menghasilkan soal dengan AI',
+      error: errMsg,
     });
   }
 });

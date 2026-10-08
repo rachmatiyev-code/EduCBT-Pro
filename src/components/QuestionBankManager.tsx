@@ -356,24 +356,30 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
 
   const handleOpenDeployModal = (bank: QuestionBank) => {
     setDeployModalBank(bank);
-    setDeployToken('CBT-' + Math.floor(1000 + Math.random() * 9000));
+    const generatedToken = 'CBT-' + Math.floor(1000 + Math.random() * 9000);
+    setDeployToken(generatedToken);
     setDeployDuration(bank.durationMinutes || 60);
-    setDeployTargetClasses(classes.map((c) => c.id));
+    // Default to all classes if available, otherwise open to all
+    setDeployTargetClasses(classes.length > 0 ? classes.map((c) => c.id) : []);
   };
 
   const handleConfirmDeploy = async () => {
     if (!deployModalBank) return;
     setIsDeploying(true);
     try {
+      const finalToken = (deployToken.trim() || 'CBT-' + Math.floor(1000 + Math.random() * 9000)).toUpperCase();
+      const finalTargetClasses =
+        deployTargetClasses.length > 0 ? deployTargetClasses : classes.map((c) => c.id);
+
       const newSession: ExamSession = {
         id: `SES-${Date.now()}`,
         bankId: deployModalBank.id,
-        sessionCode: deployToken.toUpperCase().trim(),
+        sessionCode: finalToken,
         title: deployModalBank.title,
-        targetClassIds: deployTargetClasses,
+        targetClassIds: finalTargetClasses,
         startTime: new Date().toISOString(),
         endTime: new Date(Date.now() + 86400000).toISOString(),
-        durationMinutes: deployDuration,
+        durationMinutes: deployDuration || 60,
         shuffleQuestions: deployShuffleQuestions,
         shuffleOptions: deployShuffleOptions,
         showResultInstant: deployShowResult,
@@ -385,6 +391,9 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       onRefreshData();
       setDeployModalBank(null);
       setActiveTab('sessions');
+    } catch (err: any) {
+      console.error('Failed to deploy session:', err);
+      alert('Gagal meluncurkan ujian: ' + (err.message || 'Terjadi kesalahan sistem'));
     } finally {
       setIsDeploying(false);
     }
@@ -1247,34 +1256,88 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 uppercase mb-1.5">
-                  Target Kelas Peserta
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {classes.map((cls) => {
-                    const isChecked = deployTargetClasses.includes(cls.id);
-                    return (
-                      <button
-                        key={cls.id}
-                        type="button"
-                        onClick={() => {
-                          if (isChecked) {
-                            setDeployTargetClasses(deployTargetClasses.filter((x) => x !== cls.id));
-                          } else {
-                            setDeployTargetClasses([...deployTargetClasses, cls.id]);
-                          }
-                        }}
-                        className={`px-3 py-2 rounded-lg border text-left flex items-center justify-between font-semibold ${
-                          isChecked ? 'bg-indigo-50 border-indigo-400 text-indigo-900' : 'bg-white border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <span>{cls.name}</span>
-                        {isChecked && <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-semibold text-slate-700 uppercase">
+                    Target Kelas Peserta
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setDeployTargetClasses(classes.map((c) => c.id))}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100"
+                    >
+                      Pilih Semua
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeployTargetClasses([])}
+                      className="text-[11px] text-slate-600 hover:text-slate-800 font-semibold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200"
+                    >
+                      Semua Siswa (Terbuka)
+                    </button>
+                  </div>
                 </div>
+
+                {classes.length === 0 ? (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs">
+                    <p className="font-semibold">Akses Terbuka untuk Semua Siswa</p>
+                    <p className="text-[11px] text-emerald-600 mt-0.5">
+                      Belum ada kelas spesifik di Master Data. Sesi ujian akan otomatis terbuka bagi semua siswa yang memasukkan token.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {classes.map((cls) => {
+                        const isChecked = deployTargetClasses.includes(cls.id);
+                        return (
+                          <button
+                            key={cls.id}
+                            type="button"
+                            onClick={() => {
+                              if (isChecked) {
+                                setDeployTargetClasses(deployTargetClasses.filter((x) => x !== cls.id));
+                              } else {
+                                setDeployTargetClasses([...deployTargetClasses, cls.id]);
+                              }
+                            }}
+                            className={`px-3 py-2 rounded-lg border text-left flex items-center justify-between font-semibold transition-all cursor-pointer ${
+                              isChecked
+                                ? 'bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs'
+                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className="truncate">{cls.name}</span>
+                            {isChecked ? (
+                              <CheckCircle className="w-3.5 h-3.5 text-indigo-600 shrink-0 ml-1" />
+                            ) : (
+                              <span className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ml-1" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {deployTargetClasses.length === 0
+                        ? 'ℹ Tidak ada kelas yang dibatasi (Sesi terbuka untuk seluruh siswa yang memiliki token).'
+                        : `✓ ${deployTargetClasses.length} dari ${classes.length} kelas dipilih.`}
+                    </p>
+                  </>
+                )}
               </div>
+
+              {/* Warning if bank has no questions yet */}
+              {deployModalBank.questions.length === 0 && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+                  <span className="text-amber-600 text-sm">⚠</span>
+                  <div>
+                    <span className="font-semibold">Bank soal belum memiliki butir soal:</span>
+                    <p className="text-[11px] text-amber-700 mt-0.5">
+                      Anda tetap dapat meluncurkan sesi ujian ini. Pastikan Anda menambahkan butir soal sebelum siswa mulai mengerjakan.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Security & Display Settings */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
@@ -1319,21 +1382,32 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setDeployModalBank(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleConfirmDeploy}
-                disabled={isDeploying || deployTargetClasses.length === 0}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Luncurkan Ujian ({deployToken})</span>
-              </button>
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <div className="text-[11px] text-slate-500 font-medium">
+                Status: <span className="text-emerald-600 font-bold">Siap Diluncurkan</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeployModalBank(null)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeploy}
+                  disabled={isDeploying || !deployToken.trim()}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>
+                    {isDeploying
+                      ? 'Meluncurkan Sesi...'
+                      : `Luncurkan Ujian (${deployToken.trim() || 'CBT'})`}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

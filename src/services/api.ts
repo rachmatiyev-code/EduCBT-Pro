@@ -52,22 +52,41 @@ export const api = {
       // Merge locally stored students if any (failsafe persistence)
       try {
         const localStudentsJson = localStorage.getItem('educbt_master_students');
-        if (localStudentsJson && result) {
+        if (localStudentsJson && result && Array.isArray(result.students)) {
           const localStudents: Student[] = JSON.parse(localStudentsJson);
-          if (Array.isArray(localStudents) && localStudents.length > 0) {
-            result.students = localStudents;
+          if (Array.isArray(localStudents)) {
+            localStudents.forEach((ls) => {
+              const exists = result.students.some(
+                (s: Student) => s.id === ls.id || (s.nisn && ls.nisn && s.nisn === ls.nisn)
+              );
+              if (!exists) {
+                result.students.push(ls);
+              }
+            });
           }
+        }
+        // Keep localStorage updated with the full merged list
+        if (result && Array.isArray(result.students)) {
+          localStorage.setItem('educbt_master_students', JSON.stringify(result.students));
         }
       } catch (e) {}
 
       // Merge locally stored classes if any
       try {
         const localClassesJson = localStorage.getItem('educbt_master_classes');
-        if (localClassesJson && result) {
+        if (localClassesJson && result && Array.isArray(result.classes)) {
           const localClasses: ClassGroup[] = JSON.parse(localClassesJson);
-          if (Array.isArray(localClasses) && localClasses.length > 0) {
-            result.classes = localClasses;
+          if (Array.isArray(localClasses)) {
+            localClasses.forEach((lc) => {
+              const exists = result.classes.some((c: ClassGroup) => c.id === lc.id);
+              if (!exists) {
+                result.classes.push(lc);
+              }
+            });
           }
+        }
+        if (result && Array.isArray(result.classes)) {
+          localStorage.setItem('educbt_master_classes', JSON.stringify(result.classes));
         }
       } catch (e) {}
 
@@ -215,9 +234,28 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
         clean = clean.substring(firstBracket, lastBracket + 1);
       }
 
-      let parsed = JSON.parse(clean);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(clean);
+      } catch {
+        // Try parsing original if substring failed
+        parsed = JSON.parse(rawText);
+      }
+
       if (!Array.isArray(parsed)) {
-        throw new Error('Format respon AI bukan berupa array butir soal.');
+        if (parsed && typeof parsed === 'object') {
+          parsed =
+            parsed.questions ||
+            parsed.data ||
+            parsed.items ||
+            parsed.soal ||
+            (Object.values(parsed).find(Array.isArray) as any[]) ||
+            [];
+        }
+      }
+
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('Format respon AI bukan berupa kumpulan butir soal.');
       }
 
       return parsed.map((q: any, idx: number) => {
@@ -319,7 +357,10 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
     try {
       const res = await fetch('/api/gemini/generate-questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(effectiveApiKey ? { 'x-gemini-api-key': effectiveApiKey } : {}),
+        },
         body: JSON.stringify({
           ...params,
           apiKey: effectiveApiKey || undefined,
@@ -333,23 +374,32 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
       } catch {
         // Non-JSON response, like Cloud Run HTML error
         throw new Error(
-          'Server proxy sedang sibuk atau waktu tunggu habis. Pastikan Gemini API Key Anda telah diisi pada menu "Gemini API Key" di navigasi atas.'
+          'Server proxy sedang sibuk atau waktu tunggu habis. Silakan pilih 5–10 butir soal agar proses berlangsung lebih cepat.'
         );
       }
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Gagal menghasilkan butir soal dari AI Gemini.');
+        let errStr = data?.error || 'Gagal menghasilkan butir soal dari AI Gemini.';
+        if (errStr.includes('Unexpected token') || errStr.includes('is not valid JSON') || errStr.includes('The page c')) {
+          errStr = 'Koneksi ke server AI terputus atau waktu tunggu habis. Silakan ulangi dengan memilih 5–10 butir soal.';
+        }
+        throw new Error(errStr);
       }
 
       if (Array.isArray(data.questions) && data.questions.length > 0) {
         return data.questions as QuestionItem[];
       }
     } catch (serverErr: any) {
+      let rawMsg = serverErr.message || 'Gagal memproses soal AI.';
+      if (rawMsg.includes('Unexpected token') || rawMsg.includes('is not valid JSON') || rawMsg.includes('The page c')) {
+        rawMsg = 'Waktu tunggu server AI habis atau respon tidak berformat JSON. Silakan coba kembali dengan jumlah 5–10 butir soal.';
+      }
+
       if (effectiveApiKey) {
-        throw new Error(`Gagal memproses soal AI: ${serverErr.message}`);
+        throw new Error(rawMsg);
       } else {
         throw new Error(
-          'Layanan AI memerlukan API Key pribadi. Silakan masukkan Gemini API Key gratis Anda pada menu "Gemini API Key" di pojok kanan atas.'
+          'Layanan AI memerlukan API Key pribadi jika server sedang sibuk. Silakan masukkan Gemini API Key gratis Anda pada menu "Gemini API Key" di pojok kanan atas.'
         );
       }
     }
