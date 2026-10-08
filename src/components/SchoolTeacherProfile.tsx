@@ -12,6 +12,7 @@ import {
   Shield,
   FileText,
   KeyRound,
+  Sparkles,
 } from 'lucide-react';
 import { SchoolProfile, Teacher, Subject } from '../types/cbt';
 import { api } from '../services/api';
@@ -22,6 +23,7 @@ interface SchoolTeacherProfileProps {
   teachers: Teacher[];
   subjects: Subject[];
   onRefreshData: () => void;
+  onOpenGeminiModal?: () => void;
 }
 
 export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
@@ -29,11 +31,25 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
   teachers,
   subjects,
   onRefreshData,
+  onOpenGeminiModal,
 }) => {
   const [profile, setProfile] = useState<SchoolProfile>(schoolProfile);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [teacherToChangePassword, setTeacherToChangePassword] = useState<Teacher | null>(null);
+
+  // Sync state if schoolProfile prop updates
+  React.useEffect(() => {
+    setProfile(schoolProfile);
+  }, [schoolProfile]);
+
+  const handleApplyPreset = (regional: string, dept: string) => {
+    setProfile((prev) => ({
+      ...prev,
+      regionalGovernment: regional,
+      educationDepartment: dept,
+    }));
+  };
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -58,7 +74,7 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
             <span>Identitas Sekolah & Profil Pendidik</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Konfigurasi lembaga pendidikan, kop surat resmi ujian, dan data pendidik/guru pengampu
+            Konfigurasi lembaga pendidikan, pemerintah daerah, dinas pendidikan, kop surat resmi ujian, dan data guru
           </p>
         </div>
 
@@ -82,17 +98,20 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
       </div>
 
       {/* Official Letterhead (Kop Surat) Preview */}
-      <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-6 shadow-xs text-center space-y-1">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
+      <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-6 shadow-xs text-center space-y-1.5">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
           [ Pratinjau Kop Surat Resmi Ujian CBT ]
         </span>
-        <h3 className="text-lg font-extrabold uppercase tracking-wide text-slate-900">
-          PEMERINTAH PROVINSI / DAERAH KHUSUS
+        <h3 className="text-base sm:text-lg font-extrabold uppercase tracking-wide text-slate-800 leading-snug">
+          {profile.regionalGovernment || 'PEMERINTAH DAERAH PROVINSI / KABUPATEN / KOTA'}
         </h3>
-        <h2 className="text-xl font-black text-indigo-900 uppercase">
+        <h4 className="text-sm sm:text-base font-bold uppercase tracking-wider text-slate-700 leading-snug">
+          {profile.educationDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+        </h4>
+        <h2 className="text-xl sm:text-2xl font-black text-indigo-900 uppercase pt-1">
           {profile.name || 'NAMA SEKOLAH'}
         </h2>
-        <p className="text-xs text-slate-600 max-w-xl mx-auto">
+        <p className="text-xs text-slate-600 max-w-2xl mx-auto pt-0.5">
           NPSN: {profile.npsn} • {profile.address} • Telp: {profile.phone}
         </p>
         <p className="text-xs text-slate-500 font-mono">
@@ -102,11 +121,80 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
         <div className="border-b border-slate-400 pt-0.5" />
       </div>
 
+      {/* Form Section 1: Pemerintah Daerah & Dinas Pendidikan */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+            <Building className="w-4 h-4 text-indigo-600" />
+            <span>Pemerintah Daerah & Dinas Pendidikan (Kop Surat Ujian)</span>
+          </h3>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-500 mr-1">Preset Instansi:</span>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset('PEMERINTAH DAERAH PROVINSI DKI JAKARTA', 'DINAS PENDIDIKAN DAN KEBUDAYAAN')}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-lg text-[11px] font-medium border border-slate-200 transition-colors cursor-pointer"
+            >
+              Provinsi (SMA/SMK/SLB)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset('PEMERINTAH KABUPATEN / KOTA', 'DINAS PENDIDIKAN DAN KEBUDAYAAN')}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-lg text-[11px] font-medium border border-slate-200 transition-colors cursor-pointer"
+            >
+              Kabupaten / Kota (SD/SMP)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset('KEMENTERIAN AGAMA REPUBLIK INDONESIA', 'KANTOR KEMENTERIAN AGAMA KABUPATEN/KOTA')}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-lg text-[11px] font-medium border border-slate-200 transition-colors cursor-pointer"
+            >
+              Kemenag (Madrasah)
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Pemerintah Daerah (Provinsi / Kabupaten / Kota) *
+            </label>
+            <input
+              type="text"
+              value={profile.regionalGovernment || ''}
+              onChange={(e) => setProfile({ ...profile, regionalGovernment: e.target.value })}
+              placeholder="Contoh: PEMERINTAH DAERAH PROVINSI DKI JAKARTA atau PEMERINTAH KABUPATEN BOGOR"
+              className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Baris paling atas pada kop surat resmi instansi pembina sekolah
+            </p>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Dinas Pendidikan dan Kebudayaan *
+            </label>
+            <input
+              type="text"
+              value={profile.educationDepartment || ''}
+              onChange={(e) => setProfile({ ...profile, educationDepartment: e.target.value })}
+              placeholder="Contoh: DINAS PENDIDIKAN DAN KEBUDAYAAN"
+              className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Baris kedua pada kop surat (instansi dinas / kementerian terkait)
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Form Fields: School Identity */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
         <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
           <Building className="w-4 h-4 text-indigo-600" />
-          <span>Informasi Lembaga Sekolah</span>
+          <span>Informasi Satuan Pendidikan (Sekolah)</span>
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
@@ -266,6 +354,32 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Gemini AI Integration Section */}
+      <div className="bg-linear-to-r from-indigo-900 via-indigo-950 to-slate-900 rounded-2xl border border-indigo-800/40 p-6 shadow-sm text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-yellow-300 border border-white/10 shrink-0">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm tracking-tight">Integrasi Google Gemini AI (Kurikulum Merdeka)</h3>
+            <p className="text-xs text-indigo-200/80 mt-0.5 max-w-xl">
+              Hubungkan Google Gemini API Key Anda sendiri untuk mengaktifkan generator butir soal HOTS otomatis, stimulus bacaan analitis, dan pembahasan instan.
+            </p>
+          </div>
+        </div>
+
+        {onOpenGeminiModal && (
+          <button
+            type="button"
+            onClick={onOpenGeminiModal}
+            className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold rounded-xl text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer shrink-0"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Pengaturan Gemini API Key</span>
+          </button>
+        )}
       </div>
 
       {/* Change Password Modal */}

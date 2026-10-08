@@ -36,6 +36,7 @@ import { MasterDataManager } from './components/MasterDataManager';
 import { SchoolTeacherProfile } from './components/SchoolTeacherProfile';
 import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { AIPromptGeneratorModal } from './components/AIPromptGeneratorModal';
+import { GeminiApiKeyModal } from './components/GeminiApiKeyModal';
 import { StudentExamRoom } from './components/StudentExamRoom';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
@@ -43,6 +44,8 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 export default function App() {
   // App-wide state
   const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>({
+    regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
+    educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
     name: 'SMA Negeri 1 Prestasi Bangsa',
     npsn: '20108922',
     address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
@@ -78,6 +81,7 @@ export default function App() {
   // Modals
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [isGeminiModalOpen, setIsGeminiModalOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
@@ -140,8 +144,22 @@ export default function App() {
         onLoginTeacher={handleLoginTeacher}
         onLoginStudent={handleLoginStudent}
         onAddTeacher={(newTeacher) => {
-          setTeachers((prev) => [...prev, newTeacher]);
-          loadInitialData();
+          setTeachers((prev) => {
+            const exists = prev.some((t) => t.id === newTeacher.id);
+            if (exists) return prev.map((t) => (t.id === newTeacher.id ? newTeacher : t));
+            return [...prev, newTeacher];
+          });
+          api.fetchAllData().then((data) => {
+            if (data?.teachers) {
+              setTeachers((prev) => {
+                const merged = [...data.teachers];
+                if (!merged.some((t) => t.id === newTeacher.id)) {
+                  merged.push(newTeacher);
+                }
+                return merged;
+              });
+            }
+          });
         }}
         onTeacherPasswordChanged={(updatedTeacher) => {
           setTeachers((prev) =>
@@ -212,6 +230,16 @@ export default function App() {
             >
               <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
               <span className="hidden sm:inline">AI Question Generator</span>
+            </button>
+
+            {/* Menu Input Gemini API Key */}
+            <button
+              onClick={() => setIsGeminiModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-900 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              title="Menu Input & Pengaturan Google Gemini API Key"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden md:inline">Gemini API Key</span>
             </button>
 
             <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
@@ -370,6 +398,7 @@ export default function App() {
             teachers={teachers}
             subjects={subjects}
             onRefreshData={loadInitialData}
+            onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
           />
         )}
       </main>
@@ -383,6 +412,7 @@ export default function App() {
       <AIPromptGeneratorModal
         isOpen={isAIModalOpen}
         onClose={() => setIsAIModalOpen(false)}
+        onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
         onImportQuestions={async (questions, titleInfo) => {
           const newBank: QuestionBank = {
             id: `BANK-${Date.now()}`,
@@ -423,6 +453,12 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Gemini API Key Configuration Modal */}
+      <GeminiApiKeyModal
+        isOpen={isGeminiModalOpen}
+        onClose={() => setIsGeminiModalOpen(false)}
+      />
     </div>
   );
 }

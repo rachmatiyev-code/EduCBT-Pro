@@ -34,6 +34,17 @@ export const api = {
             }
           });
         }
+
+        // Also merge saved passwords from educbt_teacher_saved_passwords
+        const savedPassJson = localStorage.getItem('educbt_teacher_saved_passwords');
+        if (savedPassJson && result && Array.isArray(result.teachers)) {
+          const savedPassMap: Record<string, string> = JSON.parse(savedPassJson);
+          result.teachers.forEach((t: Teacher) => {
+            if (savedPassMap[t.id]) {
+              t.password = savedPassMap[t.id];
+            }
+          });
+        }
       } catch (e) {
         // ignore localStorage error
       }
@@ -153,11 +164,16 @@ export const api = {
     questionTypes: string[];
     questionCount: number;
     customPrompt?: string;
+    apiKey?: string;
   }) {
+    const effectiveApiKey = params.apiKey || localStorage.getItem('educbt_gemini_api_key') || undefined;
     const res = await fetch('/api/gemini/generate-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        ...params,
+        apiKey: effectiveApiKey,
+      }),
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
@@ -500,6 +516,9 @@ export const api = {
         match.password = params.newPassword.trim();
         localStorage.setItem('educbt_custom_teachers', JSON.stringify(existing));
       }
+      const passMap: Record<string, string> = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+      passMap[params.teacherId] = params.newPassword.trim();
+      localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
     } catch {}
 
     try {
@@ -549,8 +568,14 @@ export const api = {
     // Save to local cache first as failsafe guarantee
     try {
       const existing: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
-      existing.push(fallbackTeacher);
-      localStorage.setItem('educbt_custom_teachers', JSON.stringify(existing));
+      const filterExisting = existing.filter((t) => t.id !== fallbackTeacher.id);
+      filterExisting.push(fallbackTeacher);
+      localStorage.setItem('educbt_custom_teachers', JSON.stringify(filterExisting));
+
+      const passMap: Record<string, string> = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+      passMap[fallbackTeacher.id] = fallbackTeacher.password || '1234';
+      localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+      localStorage.setItem('educbt_last_teacher_id', fallbackTeacher.id);
     } catch {}
 
     try {
@@ -567,9 +592,14 @@ export const api = {
           // Update local cache with server teacher
           try {
             const existing: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
-            const updated = existing.filter((t) => t.id !== fallbackTeacher.id);
+            const updated = existing.filter((t) => t.id !== fallbackTeacher.id && t.id !== data.teacher.id);
             updated.push(data.teacher);
             localStorage.setItem('educbt_custom_teachers', JSON.stringify(updated));
+
+            const passMap: Record<string, string> = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+            passMap[data.teacher.id] = data.teacher.password || '1234';
+            localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+            localStorage.setItem('educbt_last_teacher_id', data.teacher.id);
           } catch {}
           return data;
         }
@@ -589,6 +619,84 @@ export const api = {
         success: true,
         message: 'Akun guru baru berhasil ditambahkan!',
         teacher: fallbackTeacher,
+      };
+    }
+  },
+
+  // Gemini API Key Management
+  async getGeminiApiKeyInfo(): Promise<{
+    success: boolean;
+    isConfigured: boolean;
+    isCustom: boolean;
+    maskedKey: string;
+  }> {
+    try {
+      const res = await fetch('/api/gemini/get-key');
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+    const local = localStorage.getItem('educbt_gemini_api_key') || '';
+    return {
+      success: true,
+      isConfigured: !!local,
+      isCustom: !!local,
+      maskedKey: local.length > 8 ? `${local.substring(0, 6)}...${local.substring(local.length - 4)}` : '',
+    };
+  },
+
+  async saveGeminiApiKey(apiKey: string): Promise<{
+    success: boolean;
+    message?: string;
+    isConfigured: boolean;
+    isCustom: boolean;
+    maskedKey: string;
+    error?: string;
+  }> {
+    const cleanKey = (apiKey || '').trim();
+    if (cleanKey) {
+      localStorage.setItem('educbt_gemini_api_key', cleanKey);
+    } else {
+      localStorage.removeItem('educbt_gemini_api_key');
+    }
+
+    try {
+      const res = await fetch('/api/gemini/set-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: cleanKey }),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return {
+        success: true,
+        message: cleanKey ? 'Gemini API Key tersimpan di penyimpanan browser.' : 'Gemini API Key dihapus.',
+        isConfigured: !!cleanKey,
+        isCustom: !!cleanKey,
+        maskedKey: cleanKey.length > 8 ? `${cleanKey.substring(0, 6)}...${cleanKey.substring(cleanKey.length - 4)}` : '',
+      };
+    }
+  },
+
+  async testGeminiApiKey(apiKey?: string): Promise<{
+    success: boolean;
+    message?: string;
+    sampleResponse?: string;
+    error?: string;
+  }> {
+    const keyToTest = apiKey !== undefined ? apiKey.trim() : (localStorage.getItem('educbt_gemini_api_key') || '');
+    try {
+      const res = await fetch('/api/gemini/test-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: keyToTest }),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Gagal menghubungi server untuk menguji API Key.',
       };
     }
   },

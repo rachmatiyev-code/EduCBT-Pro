@@ -51,18 +51,49 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [studentError, setStudentError] = useState('');
 
   // Teacher login fields
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(teachers[0]?.id || '');
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [teacherPassword, setTeacherPassword] = useState('1234');
   const [showTeacherPassword, setShowTeacherPassword] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(true);
   const [teacherError, setTeacherError] = useState('');
   const [notificationMsg, setNotificationMsg] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
-  // Sync selected teacher when list loads or changes
+  // Helper to retrieve saved password for a teacher
+  const getSavedPasswordForTeacher = (teacherId: string, fallbackTeacher?: Teacher): string => {
+    try {
+      const savedMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+      if (savedMap && savedMap[teacherId]) {
+        return savedMap[teacherId];
+      }
+    } catch {}
+    if (fallbackTeacher?.password) return fallbackTeacher.password;
+    const match = teachers.find((t) => t.id === teacherId);
+    return match?.password || '1234';
+  };
+
+  // Sync selected teacher & password when list loads or changes
   useEffect(() => {
-    if ((!selectedTeacherId || !teachers.some((t) => t.id === selectedTeacherId)) && teachers.length > 0) {
-      setSelectedTeacherId(teachers[0].id);
+    if (teachers.length > 0) {
+      const lastId = localStorage.getItem('educbt_last_teacher_id');
+      const targetId = (lastId && teachers.some((t) => t.id === lastId)) ? lastId : (selectedTeacherId && teachers.some((t) => t.id === selectedTeacherId)) ? selectedTeacherId : teachers[0].id;
+      if (targetId !== selectedTeacherId) {
+        setSelectedTeacherId(targetId);
+      }
+      const targetTeacher = teachers.find((t) => t.id === targetId);
+      const savedPass = getSavedPasswordForTeacher(targetId, targetTeacher);
+      setTeacherPassword(savedPass);
     }
-  }, [teachers, selectedTeacherId]);
+  }, [teachers]);
+
+  const handleSelectTeacher = (id: string) => {
+    setSelectedTeacherId(id);
+    const targetTeacher = teachers.find((t) => t.id === id);
+    const savedPass = getSavedPasswordForTeacher(id, targetTeacher);
+    setTeacherPassword(savedPass);
+    try {
+      localStorage.setItem('educbt_last_teacher_id', id);
+    } catch {}
+  };
 
   // Teacher registration view fields (Menu Tambah Akun Guru)
   const [newTeacherName, setNewTeacherName] = useState('');
@@ -126,9 +157,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const expectedPassword = t.password || '1234';
     if (teacherPassword.trim() !== expectedPassword) {
       setTeacherError(
-        `Kata sandi tidak sesuai! Kata sandi bawaan adalah "1234" atau gunakan menu "Edit Kata Sandi" jika Anda ingin memperbaruinya.`
+        `Kata sandi tidak sesuai! Silakan periksa kembali atau gunakan menu "Edit Kata Sandi" untuk memperbarui kata sandi akun ${t.name}.`
       );
       return;
+    }
+
+    // Persist login state and password for seamless future logins
+    if (rememberPassword) {
+      try {
+        localStorage.setItem('educbt_last_teacher_id', t.id);
+        const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+        passMap[t.id] = teacherPassword.trim();
+        localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+      } catch {}
     }
 
     onLoginTeacher(t);
@@ -159,26 +200,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     setIsSubmittingRegister(true);
+    const cleanPassword = newTeacherPassword.trim();
     try {
       const res = await api.registerTeacher({
         name: newTeacherName.trim(),
         nip: newTeacherNip.trim() || undefined,
         email: newTeacherEmail.trim() || undefined,
         role: newTeacherRole,
-        password: newTeacherPassword.trim(),
+        password: cleanPassword,
       });
 
       if (res && res.success && res.teacher) {
         if (onAddTeacher) {
           onAddTeacher(res.teacher);
         }
+        // Save to remembered credentials immediately
+        try {
+          localStorage.setItem('educbt_last_teacher_id', res.teacher.id);
+          const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+          passMap[res.teacher.id] = cleanPassword;
+          localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+        } catch {}
+
         setSelectedTeacherId(res.teacher.id);
-        setTeacherPassword(newTeacherPassword.trim());
+        setTeacherPassword(cleanPassword);
         setTeacherView('login');
         setTeacherError('');
         setNotificationMsg({
           type: 'success',
-          text: `Akun Guru "${res.teacher.name}" (${res.teacher.role.toUpperCase()}) berhasil ditambahkan! Silakan masuk.`,
+          text: `Akun Guru "${res.teacher.name}" berhasil didaftarkan dan kata sandi tersimpan otomatis! Silakan klik Masuk.`,
         });
 
         // Reset registration fields
@@ -199,17 +249,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         email: newTeacherEmail.trim() || `${newTeacherName.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
         role: newTeacherRole,
         subjectIds: ['SUB-01'],
-        password: newTeacherPassword.trim(),
+        password: cleanPassword,
       };
       if (onAddTeacher) {
         onAddTeacher(fallbackTeacher);
       }
+      try {
+        localStorage.setItem('educbt_last_teacher_id', fallbackTeacher.id);
+        const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+        passMap[fallbackTeacher.id] = cleanPassword;
+        localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+      } catch {}
+
       setSelectedTeacherId(fallbackTeacher.id);
-      setTeacherPassword(newTeacherPassword.trim());
+      setTeacherPassword(cleanPassword);
       setTeacherView('login');
       setNotificationMsg({
         type: 'success',
-        text: `Akun Guru "${fallbackTeacher.name}" berhasil ditambahkan! Silakan masuk.`,
+        text: `Akun Guru "${fallbackTeacher.name}" berhasil ditambahkan dan kata sandi tersimpan! Silakan klik Masuk.`,
       });
       setNewTeacherName('');
       setNewTeacherNip('');
@@ -225,7 +282,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const targetId = selectedTeacherId || teachers[0]?.id || '';
     setEditTeacherId(targetId);
     const targetTeacher = teachers.find((t) => t.id === targetId);
-    setOldPassword(targetTeacher?.password || '1234');
+    const currentPass = getSavedPasswordForTeacher(targetId, targetTeacher);
+    setOldPassword(currentPass);
     setNewPassword('');
     setConfirmNewPassword('');
     setEditPassError('');
@@ -252,30 +310,38 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     setIsSubmittingEditPass(true);
+    const cleanNewPass = newPassword.trim();
     try {
       const res = await api.changeTeacherPassword({
         teacherId: editTeacherId,
         oldPassword: oldPassword.trim(),
-        newPassword: newPassword.trim(),
+        newPassword: cleanNewPass,
       });
 
       if (res && res.success) {
         const updatedTeacher = res.teacher || {
           ...editTeacherObj,
-          password: newPassword.trim(),
+          password: cleanNewPass,
         };
         if (onTeacherPasswordChanged) {
           onTeacherPasswordChanged(updatedTeacher);
         }
-        // Update local state password
+        // Save to remembered credentials map
+        try {
+          const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+          passMap[editTeacherId] = cleanNewPass;
+          localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+          localStorage.setItem('educbt_last_teacher_id', editTeacherId);
+        } catch {}
+
         if (selectedTeacherId === editTeacherId) {
-          setTeacherPassword(newPassword.trim());
+          setTeacherPassword(cleanNewPass);
         }
         setTeacherView('login');
         setTeacherError('');
         setNotificationMsg({
           type: 'success',
-          text: `Kata sandi untuk ${updatedTeacher.name} berhasil diperbarui! Silakan tekan tombol Masuk.`,
+          text: `Kata sandi untuk ${updatedTeacher.name} berhasil diperbarui dan tersimpan! Silakan tekan tombol Masuk.`,
         });
       } else {
         setEditPassError(res?.error || 'Gagal memperbarui kata sandi.');
@@ -284,18 +350,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       // Local fallback
       const updatedTeacher = {
         ...editTeacherObj,
-        password: newPassword.trim(),
+        password: cleanNewPass,
       };
       if (onTeacherPasswordChanged) {
         onTeacherPasswordChanged(updatedTeacher);
       }
+      try {
+        const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+        passMap[editTeacherId] = cleanNewPass;
+        localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+        localStorage.setItem('educbt_last_teacher_id', editTeacherId);
+      } catch {}
+
       if (selectedTeacherId === editTeacherId) {
-        setTeacherPassword(newPassword.trim());
+        setTeacherPassword(cleanNewPass);
       }
       setTeacherView('login');
       setNotificationMsg({
         type: 'success',
-        text: `Kata sandi untuk ${updatedTeacher.name} berhasil diperbarui! Silakan tekan tombol Masuk.`,
+        text: `Kata sandi untuk ${updatedTeacher.name} berhasil diperbarui dan tersimpan! Silakan tekan tombol Masuk.`,
       });
     } finally {
       setIsSubmittingEditPass(false);
@@ -786,7 +859,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <div className="relative">
                   <select
                     value={selectedTeacherId}
-                    onChange={(e) => setSelectedTeacherId(e.target.value)}
+                    onChange={(e) => handleSelectTeacher(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     <optgroup label="Daftar Akun Guru Terdaftar">
@@ -808,7 +881,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       Kata Sandi
                     </label>
                     <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      Bawaan: 1234
+                      Tersimpan Otomatis
                     </span>
                   </div>
 
@@ -830,7 +903,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     type={showTeacherPassword ? 'text' : 'password'}
                     value={teacherPassword}
                     onChange={(e) => setTeacherPassword(e.target.value)}
-                    placeholder="1234"
+                    placeholder="Masukkan kata sandi guru"
                     className="w-full pl-9 pr-9 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-semibold text-slate-800"
                   />
                   <button
@@ -842,8 +915,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </button>
                 </div>
 
+                {/* Checkbox Ingat Sandi */}
+                <div className="pt-0.5 flex items-center justify-between text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberPassword}
+                      onChange={(e) => setRememberPassword(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span className="text-[11px] font-medium text-slate-600">
+                      Simpan akun & kata sandi di perangkat ini
+                    </span>
+                  </label>
+                </div>
+
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  * Masukkan kata sandi <strong>1234</strong> (default) atau kata sandi yang telah Anda atur. Gunakan menu <strong>Edit Kata Sandi</strong> di atas jika ingin mengubahnya.
+                  * Kata sandi akun guru akan otomatis tersimpan sehingga tidak perlu mengetik ulang setiap login. Gunakan menu <strong>Edit Kata Sandi</strong> jika ingin menggantinya.
                 </p>
               </div>
 

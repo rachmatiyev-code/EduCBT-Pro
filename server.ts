@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -8,6 +9,7 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DATA_STORE_PATH = path.join(__dirname, 'data_store.json');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -15,18 +17,26 @@ const port = process.env.PORT || 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Initialize Google GenAI
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+// Helper to instantiate GoogleGenAI dynamically
+function getGenAIClient(customKey?: string) {
+  const apiKey = (customKey && customKey.trim()) || examDataStore.geminiApiKey || process.env.GEMINI_API_KEY || '';
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
+  });
+}
 
-// In-memory persistent cache & queue to guarantee no exam data loss
-const examDataStore: {
+function maskApiKey(key?: string): string {
+  if (!key || key.length < 8) return '';
+  return `${key.substring(0, 6)}...${key.substring(key.length - 4)}`;
+}
+
+// In-memory persistent cache & file persistence to guarantee no data loss across restarts
+let examDataStore: {
   schoolProfile: any;
   teachers: any[];
   students: any[];
@@ -37,8 +47,11 @@ const examDataStore: {
   submissions: any[];
   livePings: Record<string, any>;
   gasWebhookUrl: string;
+  geminiApiKey?: string;
 } = {
   schoolProfile: {
+    regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
+    educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
     name: 'SMA Negeri 1 Prestasi Bangsa',
     npsn: '20108922',
     address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
@@ -102,9 +115,82 @@ const examDataStore: {
   submissions: [],
   livePings: {},
   gasWebhookUrl: '',
+  geminiApiKey: '',
 };
 
-// Seed an initial ready-to-test bank soal and session
+// Disk Persistence helpers
+function loadDataStore() {
+  try {
+    if (fs.existsSync(DATA_STORE_PATH)) {
+      const raw = fs.readFileSync(DATA_STORE_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.schoolProfile) {
+          examDataStore.schoolProfile = {
+            regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
+            educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+            ...parsed.schoolProfile,
+          };
+        }
+        if (Array.isArray(parsed.teachers) && parsed.teachers.length > 0) {
+          examDataStore.teachers = parsed.teachers;
+        }
+        if (Array.isArray(parsed.students) && parsed.students.length > 0) {
+          examDataStore.students = parsed.students;
+        }
+        if (Array.isArray(parsed.classes) && parsed.classes.length > 0) {
+          examDataStore.classes = parsed.classes;
+        }
+        if (Array.isArray(parsed.subjects) && parsed.subjects.length > 0) {
+          examDataStore.subjects = parsed.subjects;
+        }
+        if (Array.isArray(parsed.questionBanks)) {
+          examDataStore.questionBanks = parsed.questionBanks;
+        }
+        if (Array.isArray(parsed.examSessions)) {
+          examDataStore.examSessions = parsed.examSessions;
+        }
+        if (Array.isArray(parsed.submissions)) {
+          examDataStore.submissions = parsed.submissions;
+        }
+        if (parsed.gasWebhookUrl) {
+          examDataStore.gasWebhookUrl = parsed.gasWebhookUrl;
+        }
+        if (parsed.geminiApiKey) {
+          examDataStore.geminiApiKey = parsed.geminiApiKey;
+        }
+        console.log(`[Store] Loaded data from disk: ${examDataStore.teachers.length} teachers, ${examDataStore.students.length} students`);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Store] Could not load data_store.json:', err.message);
+  }
+}
+
+function saveDataStore() {
+  try {
+    const toSave = {
+      schoolProfile: examDataStore.schoolProfile,
+      teachers: examDataStore.teachers,
+      students: examDataStore.students,
+      classes: examDataStore.classes,
+      subjects: examDataStore.subjects,
+      questionBanks: examDataStore.questionBanks,
+      examSessions: examDataStore.examSessions,
+      submissions: examDataStore.submissions,
+      gasWebhookUrl: examDataStore.gasWebhookUrl,
+      geminiApiKey: examDataStore.geminiApiKey,
+    };
+    fs.writeFileSync(DATA_STORE_PATH, JSON.stringify(toSave, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.warn('[Store] Could not write to data_store.json:', err.message);
+  }
+}
+
+// Initial load
+loadDataStore();
+
+// Seed an initial ready-to-test bank soal and session if empty
 const initialBankId = 'BANK-001';
 const initialSessionId = 'SES-001';
 
@@ -221,6 +307,7 @@ app.post('/api/gemini/generate-questions', async (req, res) => {
       questionCount,
       customPrompt,
       includeExplanations = true,
+      apiKey,
     } = req.body;
 
     const count = Math.min(Math.max(Number(questionCount) || 5, 1), 50);
@@ -260,43 +347,56 @@ Setiap soal harus memiliki struktur:
 Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: promptText,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              number: { type: Type.INTEGER },
-              type: { type: Type.STRING },
-              question: { type: Type.STRING },
-              options: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              correctAnswer: { type: Type.STRING },
-              explanation: { type: Type.STRING },
-              points: { type: Type.NUMBER },
-              matchingPairs: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    left: { type: Type.STRING },
-                    right: { type: Type.STRING },
-                  },
+    const client = getGenAIClient(apiKey || (req.headers['x-gemini-api-key'] as string));
+    const generateConfig = {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            number: { type: Type.INTEGER },
+            type: { type: Type.STRING },
+            question: { type: Type.STRING },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+            correctAnswer: { type: Type.STRING },
+            explanation: { type: Type.STRING },
+            points: { type: Type.NUMBER },
+            matchingPairs: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  left: { type: Type.STRING },
+                  right: { type: Type.STRING },
                 },
               },
             },
-            required: ['number', 'type', 'question', 'points', 'correctAnswer'],
           },
+          required: ['number', 'type', 'question', 'points', 'correctAnswer'],
         },
       },
-    });
+    };
+
+    let response;
+    try {
+      response = await client.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: promptText,
+        config: generateConfig,
+      });
+    } catch (primaryErr: any) {
+      console.warn('Primary 3.8-flash failed, falling back to 2.5-flash:', primaryErr.message);
+      response = await client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: promptText,
+        config: generateConfig,
+      });
+    }
 
     const rawText = response.text || '[]';
     let questions = JSON.parse(rawText);
@@ -358,6 +458,76 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
   }
 });
 
+// Gemini API Key Management Routes
+app.get('/api/gemini/get-key', (req, res) => {
+  const customKey = examDataStore.geminiApiKey || '';
+  const envKey = process.env.GEMINI_API_KEY || '';
+  const effectiveKey = customKey || envKey;
+  return res.json({
+    success: true,
+    isConfigured: !!effectiveKey,
+    isCustom: !!customKey,
+    maskedKey: maskApiKey(effectiveKey),
+  });
+});
+
+app.post('/api/gemini/set-key', (req, res) => {
+  try {
+    const { apiKey } = req.body || {};
+    const cleanKey = (apiKey || '').trim();
+    examDataStore.geminiApiKey = cleanKey;
+    saveDataStore();
+    const effectiveKey = cleanKey || process.env.GEMINI_API_KEY || '';
+    return res.json({
+      success: true,
+      message: cleanKey
+        ? 'Google Gemini API Key berhasil disimpan dan diaktifkan!'
+        : 'Gemini API Key kustom telah dihapus (kembali menggunakan setelan bawaan sistem).',
+      isConfigured: !!effectiveKey,
+      isCustom: !!cleanKey,
+      maskedKey: maskApiKey(effectiveKey),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menyimpan API key' });
+  }
+});
+
+app.post('/api/gemini/test-key', async (req, res) => {
+  try {
+    const { apiKey } = req.body || {};
+    const client = getGenAIClient(apiKey);
+    let text = '';
+    let modelUsed = 'gemini-3.8-flash';
+    try {
+      const result = await client.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: 'Tuliskan hanya satu kata sambutan singkat dalam Bahasa Indonesia: Sukses',
+      });
+      text = result.text || '';
+    } catch (primaryErr: any) {
+      console.warn('Primary model 3.8-flash retry with 2.5-flash:', primaryErr.message);
+      modelUsed = 'gemini-2.5-flash';
+      const result = await client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: 'Tuliskan hanya satu kata sambutan singkat dalam Bahasa Indonesia: Sukses',
+      });
+      text = result.text || '';
+    }
+
+    return res.json({
+      success: true,
+      message: `Koneksi ke Google Gemini AI (Model: ${modelUsed}) Berhasil & Aktif!`,
+      sampleResponse: text.trim(),
+    });
+  } catch (err: any) {
+    console.error('Error testing Gemini key:', err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || 'Koneksi gagal. Pastikan API Key Gemini Anda valid dan aktif dari Google AI Studio.',
+    });
+  }
+});
+
 // App Data Routes
 app.get('/api/data/all', (req, res) => {
   return res.json({
@@ -368,6 +538,7 @@ app.get('/api/data/all', (req, res) => {
 
 app.post('/api/data/school-profile', (req, res) => {
   examDataStore.schoolProfile = { ...examDataStore.schoolProfile, ...req.body };
+  saveDataStore();
   return res.json({ success: true, schoolProfile: examDataStore.schoolProfile });
 });
 
@@ -378,6 +549,7 @@ app.post('/api/data/master', (req, res) => {
     if (students && Array.isArray(students)) examDataStore.students = students;
     if (classes && Array.isArray(classes)) examDataStore.classes = classes;
     if (subjects && Array.isArray(subjects)) examDataStore.subjects = subjects;
+    saveDataStore();
     return res.json({
       success: true,
       message: 'Data master berhasil diperbarui.',
@@ -407,6 +579,7 @@ app.post('/api/teacher/change-password', (req, res) => {
     }
 
     teacher.password = newPassword.trim();
+    saveDataStore();
     return res.json({
       success: true,
       message: 'Kata sandi berhasil diubah! Silakan gunakan kata sandi baru untuk login.',
@@ -434,7 +607,15 @@ app.post('/api/teacher/register', (req, res) => {
       password: password && password.trim() ? password.trim() : '1234',
     };
 
-    examDataStore.teachers.push(newTeacher);
+    // Ensure not duplicate id
+    const existingIdx = examDataStore.teachers.findIndex((t) => t.id === newTeacher.id);
+    if (existingIdx >= 0) {
+      examDataStore.teachers[existingIdx] = newTeacher;
+    } else {
+      examDataStore.teachers.push(newTeacher);
+    }
+    saveDataStore();
+
     return res.json({
       success: true,
       message: 'Akun guru baru berhasil ditambahkan!',
@@ -457,11 +638,13 @@ app.post('/api/data/question-banks', (req, res) => {
   } else {
     examDataStore.questionBanks.push(bank);
   }
+  saveDataStore();
   return res.json({ success: true, bank });
 });
 
 app.delete('/api/data/question-banks/:id', (req, res) => {
   examDataStore.questionBanks = examDataStore.questionBanks.filter((b) => b.id !== req.params.id);
+  saveDataStore();
   return res.json({ success: true, message: 'Bank soal berhasil dihapus.' });
 });
 
@@ -476,11 +659,13 @@ app.post('/api/data/exam-sessions', (req, res) => {
   } else {
     examDataStore.examSessions.push(session);
   }
+  saveDataStore();
   return res.json({ success: true, session });
 });
 
 app.delete('/api/data/exam-sessions/:id', (req, res) => {
   examDataStore.examSessions = examDataStore.examSessions.filter((s) => s.id !== req.params.id);
+  saveDataStore();
   return res.json({ success: true, message: 'Sesi ujian berhasil dihapus.' });
 });
 

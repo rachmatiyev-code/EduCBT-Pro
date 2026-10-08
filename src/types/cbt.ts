@@ -73,6 +73,8 @@ export interface SchoolProfile {
   academicYear: string;
   semester: string;
   logoUrl?: string;
+  regionalGovernment?: string; // Pemerintah Daerah (Provinsi / Kabupaten / Kota)
+  educationDepartment?: string; // Dinas Pendidikan dan Kebudayaan
 }
 
 export interface Teacher {

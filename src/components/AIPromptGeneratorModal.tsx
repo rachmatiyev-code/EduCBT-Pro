@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
   ListChecks,
+  KeyRound,
 } from 'lucide-react';
 import { QuestionItem, QuestionType } from '../types/cbt';
 import { api } from '../services/api';
@@ -20,6 +21,7 @@ interface AIPromptGeneratorModalProps {
   onImportQuestions: (questions: QuestionItem[], titleInfo: { subject: string; topic: string }) => void;
   defaultSubject?: string;
   defaultGrade?: string;
+  onOpenGeminiModal?: () => void;
 }
 
 export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
@@ -28,6 +30,7 @@ export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
   onImportQuestions,
   defaultSubject = 'Bahasa Indonesia',
   defaultGrade = '12',
+  onOpenGeminiModal,
 }) => {
   const [subject, setSubject] = useState(defaultSubject);
   const [gradeLevel, setGradeLevel] = useState(defaultGrade);
@@ -109,19 +112,44 @@ export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenGeminiModal && (
+              <button
+                type="button"
+                onClick={onOpenGeminiModal}
+                className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-white/20"
+                title="Input / Ganti Gemini API Key"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-yellow-300" />
+                <span className="hidden sm:inline">Set Gemini API Key</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {errorMsg && (
-            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-3">
-              <span className="font-semibold">Perhatian:</span> {errorMsg}
+            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start justify-between gap-3">
+              <div>
+                <span className="font-semibold">Perhatian:</span> {errorMsg}
+              </div>
+              {onOpenGeminiModal && (
+                <button
+                  type="button"
+                  onClick={onOpenGeminiModal}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Input API Key</span>
+                </button>
+              )}
             </div>
           )}
 

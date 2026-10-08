@@ -1,0 +1,316 @@
+{
+  "schoolProfile": {
+    "regionalGovernment": "PEMERINTAH DAERAH PROVINSI DKI JAKARTA",
+    "educationDepartment": "DINAS PENDIDIKAN DAN KEBUDAYAAN",
+    "name": "SMA Negeri 1 Prestasi Bangsa",
+    "npsn": "20108922",
+    "address": "Jl. Pendidikan Merdeka No. 45, Jakarta Pusat",
+    "phone": "(021) 7890-1234",
+    "email": "info@sman1prestasibangsa.sch.id",
+    "principalName": "Drs. H. Bambang Sugiarto, M.Pd.",
+    "principalNip": "19680512 199403 1 004",
+    "academicYear": "2026/2027",
+    "semester": "Ganjil",
+    "logoUrl": ""
+  },
+  "teachers": [
+    {
+      "id": "T01",
+      "name": "Dr. Siti Nurhaliza, M.Pd.",
+      "nip": "19750918 200212 2 001",
+      "email": "siti.nurhaliza@sman1prestasibangsa.sch.id",
+      "role": "admin",
+      "subjectIds": [
+        "SUB-01",
+        "SUB-02"
+      ],
+      "password": "1234"
+    },
+    {
+      "id": "T02",
+      "name": "Ahmad Fauzi, S.Pd., M.Si.",
+      "nip": "19820314 200801 1 007",
+      "email": "ahmad.fauzi@sman1prestasibangsa.sch.id",
+      "role": "guru",
+      "subjectIds": [
+        "SUB-03",
+        "SUB-04"
+      ],
+      "password": "1234"
+    },
+    {
+      "id": "T1791446246003",
+      "name": "Bambang Pamungkas, M.Pd.",
+      "nip": "198501012010011002",
+      "email": "bambang@sekolah.sch.id",
+      "role": "guru",
+      "subjectIds": [
+        "SUB-01"
+      ],
+      "password": "newpassword999"
+    }
+  ],
+  "students": [
+    {
+      "id": "STD-SD001",
+      "nisn": "0151234001",
+      "name": "Aisyah Putri Ramadhani",
+      "classId": "CLS-SD1A",
+      "gender": "P"
+    },
+    {
+      "id": "STD-SD002",
+      "nisn": "0121234002",
+      "name": "Bima Satria Nusantara",
+      "classId": "CLS-SD4A",
+      "gender": "L"
+    },
+    {
+      "id": "STD-SD003",
+      "nisn": "0101234003",
+      "name": "Citra Kirana Dewi",
+      "classId": "CLS-SD6A",
+      "gender": "P"
+    },
+    {
+      "id": "STD-001",
+      "nisn": "0071234001",
+      "name": "Aditya Pratama Putra",
+      "classId": "CLS-12A",
+      "gender": "L"
+    },
+    {
+      "id": "STD-002",
+      "nisn": "0071234002",
+      "name": "Anindya Putri Lestari",
+      "classId": "CLS-12A",
+      "gender": "P"
+    },
+    {
+      "id": "STD-003",
+      "nisn": "0071234003",
+      "name": "Bagas Wicaksono",
+      "classId": "CLS-12A",
+      "gender": "L"
+    },
+    {
+      "id": "STD-004",
+      "nisn": "0071234004",
+      "name": "Cantika Dewi Maharani",
+      "classId": "CLS-12A",
+      "gender": "P"
+    },
+    {
+      "id": "STD-005",
+      "nisn": "0071234005",
+      "name": "Daffa Rizky Ramadhan",
+      "classId": "CLS-12A",
+      "gender": "L"
+    },
+    {
+      "id": "STD-006",
+      "nisn": "0071234006",
+      "name": "Elsa Febriyanti",
+      "classId": "CLS-12A",
+      "gender": "P"
+    }
+  ],
+  "classes": [
+    {
+      "id": "CLS-SD1A",
+      "name": "I-A (Kelas 1 SD)",
+      "gradeLevel": "1"
+    },
+    {
+      "id": "CLS-SD4A",
+      "name": "IV-A (Kelas 4 SD)",
+      "gradeLevel": "4"
+    },
+    {
+      "id": "CLS-SD6A",
+      "name": "VI-A (Kelas 6 SD)",
+      "gradeLevel": "6"
+    },
+    {
+      "id": "CLS-10A",
+      "name": "X MIPA 1",
+      "gradeLevel": "10"
+    },
+    {
+      "id": "CLS-10B",
+      "name": "X MIPA 2",
+      "gradeLevel": "10"
+    },
+    {
+      "id": "CLS-11A",
+      "name": "XI MIPA 1",
+      "gradeLevel": "11"
+    },
+    {
+      "id": "CLS-12A",
+      "name": "XII MIPA 1",
+      "gradeLevel": "12"
+    }
+  ],
+  "subjects": [
+    {
+      "id": "SUB-01",
+      "code": "BIN",
+      "name": "Bahasa Indonesia",
+      "kkm": 75,
+      "teacherName": "Dr. Siti Nurhaliza, M.Pd."
+    },
+    {
+      "id": "SUB-02",
+      "code": "BIG",
+      "name": "Bahasa Inggris",
+      "kkm": 75,
+      "teacherName": "Dr. Siti Nurhaliza, M.Pd."
+    },
+    {
+      "id": "SUB-03",
+      "code": "MAT",
+      "name": "Matematika Wajib",
+      "kkm": 78,
+      "teacherName": "Ahmad Fauzi, S.Pd., M.Si."
+    },
+    {
+      "id": "SUB-04",
+      "code": "BIO",
+      "name": "Biologi",
+      "kkm": 75,
+      "teacherName": "Ahmad Fauzi, S.Pd., M.Si."
+    },
+    {
+      "id": "SUB-05",
+      "code": "IPAS",
+      "name": "IPAS (Ilmu Pengetahuan Alam & Sosial SD)",
+      "kkm": 75,
+      "teacherName": "Dr. Siti Nurhaliza, M.Pd."
+    }
+  ],
+  "questionBanks": [
+    {
+      "id": "BANK-001",
+      "title": "Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi",
+      "subjectId": "SUB-01",
+      "gradeLevel": "12",
+      "teacherId": "T01",
+      "totalQuestions": 5,
+      "durationMinutes": 45,
+      "passingScore": 75,
+      "createdAt": "2026-10-08T07:56:18.173Z",
+      "updatedAt": "2026-10-08T07:56:18.173Z",
+      "questions": [
+        {
+          "id": "q-1",
+          "number": 1,
+          "type": "multiple_choice",
+          "question": "Bacalah kutipan teks berikut:\n\n\"Teknologi kecerdasan buatan semakin terintegrasi dalam lanskap pendidikan modern. Guru tidak lagi berperan sebagai satu-satunya sumber informasi, melainkan bertransformasi menjadi fasilitator dan kurator pengetahuan.\"\n\nIde pokok paragraf di atas adalah...",
+          "options": [
+            "A. Peran baru guru sebagai fasilitator akibat integrasi kecerdasan buatan",
+            "B. Guru digantikan sepenuhnya oleh sistem kecerdasan buatan",
+            "C. Kurikulum pendidikan modern yang menolak digitalisasi",
+            "D. Siswa tidak lagi memerlukan bimbingan guru di sekolah",
+            "E. Kecerdasan buatan merupakan satu-satunya kurator ilmu pengetahuan"
+          ],
+          "correctAnswer": "A",
+          "explanation": "Paragraf menekankan integrasi kecerdasan buatan yang mengubah peran guru dari sumber informasi tunggal menjadi fasilitator.",
+          "points": 20
+        },
+        {
+          "id": "q-2",
+          "number": 2,
+          "type": "multiple_select",
+          "question": "Manakah di antara pernyataan berikut yang termasuk ke dalam ciri-ciri teks artikel ilmiah populer? (Pilih semua jawaban yang benar)",
+          "options": [
+            "A. Menggunakan bahasa yang komunikatif dan mudah dipahami khalayak umum",
+            "B. Berlandaskan pada data atau fakta yang valid dan dapat dipertanggungjawabkan",
+            "C. Wajib menggunakan istilah teknis tanpa penjelasan konteks",
+            "D. Disusun secara sistematis dengan argumen yang logis",
+            "E. Bersifat fiktif dan mengutamakan imajinasi bebas"
+          ],
+          "correctAnswer": [
+            "A",
+            "B",
+            "D"
+          ],
+          "explanation": "Artikel ilmiah populer memakai bahasa komunikatif, berbasis fakta valid, dan berargumen logis.",
+          "points": 20
+        },
+        {
+          "id": "q-3",
+          "number": 3,
+          "type": "true_false",
+          "question": "Tentukan kebenaran dari pernyataan berikut:\n\n\"Kalimat efektif harus memenuhi syarat kepaduan (koherensi), keparalelan bentuk, dan kehematan kata tanpa menimbulkan ambiguitas makna.\"",
+          "options": [
+            "Benar",
+            "Salah"
+          ],
+          "correctAnswer": "Benar",
+          "explanation": "Pernyataan tersebut tepat merangkum kriteria kaidah kalimat efektif dalam bahasa Indonesia baku.",
+          "points": 20
+        },
+        {
+          "id": "q-4",
+          "number": 4,
+          "type": "matching",
+          "question": "Jodohkan istilah kebahasaan berikut dengan definisinya yang tepat:",
+          "correctAnswer": {
+            "Konjungsi Temporal": "Kata hubung penanda urutan waktu kejadian",
+            "Kalimat Imperatif": "Kalimat yang mengandung perintah atau ajakan",
+            "Kata Denotatif": "Makna kata sebenarnya sesuai kamus"
+          },
+          "matchingPairs": [
+            {
+              "left": "Konjungsi Temporal",
+              "right": "Kata hubung penanda urutan waktu kejadian"
+            },
+            {
+              "left": "Kalimat Imperatif",
+              "right": "Kalimat yang mengandung perintah atau ajakan"
+            },
+            {
+              "left": "Kata Denotatif",
+              "right": "Makna kata sebenarnya sesuai kamus"
+            }
+          ],
+          "explanation": "Pasangan istilah dan makna telah disesuaikan dengan tata bahasa baku.",
+          "points": 20
+        },
+        {
+          "id": "q-5",
+          "number": 5,
+          "type": "short_answer",
+          "question": "Sebutkan jenis teks yang bertujuan untuk menjelaskan proses terjadinya suatu fenomena alam atau sosial secara kausalitas/sebab-akibat!",
+          "correctAnswer": "Eksplanasi",
+          "explanation": "Teks yang memaparkan hubungan sebab-akibat suatu peristiwa disebut teks eksplanasi.",
+          "points": 20
+        }
+      ]
+    }
+  ],
+  "examSessions": [
+    {
+      "id": "SES-001",
+      "bankId": "BANK-001",
+      "sessionCode": "CBT-2026",
+      "title": "Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi",
+      "targetClassIds": [
+        "CLS-12A"
+      ],
+      "startTime": "2026-10-08T06:56:18.173Z",
+      "endTime": "2026-10-09T07:56:18.173Z",
+      "durationMinutes": 45,
+      "shuffleQuestions": false,
+      "shuffleOptions": false,
+      "showResultInstant": true,
+      "antiCheatEnabled": true,
+      "maxTabSwitches": 3,
+      "status": "active"
+    }
+  ],
+  "submissions": [],
+  "gasWebhookUrl": "",
+  "geminiApiKey": ""
+}
