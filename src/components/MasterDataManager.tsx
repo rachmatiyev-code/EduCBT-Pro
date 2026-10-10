@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   GraduationCap,
@@ -41,6 +41,25 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'classes' | 'subjects'>('students');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
+  const [newlyImportedIds, setNewlyImportedIds] = useState<string[]>([]);
+
+  // Local optimistic data states to ensure immediate UI feedback
+  const [localStudents, setLocalStudents] = useState<Student[]>(students);
+  const [localClasses, setLocalClasses] = useState<ClassGroup[]>(classes);
+  const [localSubjects, setLocalSubjects] = useState<Subject[]>(subjects);
+
+  useEffect(() => {
+    setLocalStudents(students);
+  }, [students]);
+
+  useEffect(() => {
+    setLocalClasses(classes);
+  }, [classes]);
+
+  useEffect(() => {
+    setLocalSubjects(subjects);
+  }, [subjects]);
 
   // Selected students state (Fitur Pilih)
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
@@ -87,7 +106,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
     setEditingStudent(null);
     setStudentNisn('');
     setStudentName('');
-    setStudentClassId(classes[0]?.id || '');
+    setStudentClassId(localClasses[0]?.id || '');
     setStudentGender('L');
     setIsAddingStudent(true);
   };
@@ -109,7 +128,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
     let updated: Student[];
     if (editingStudent) {
-      updated = students.map((s) =>
+      updated = localStudents.map((s) =>
         s.id === editingStudent.id
           ? {
               ...s,
@@ -128,9 +147,10 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
         classId: studentClassId,
         gender: studentGender,
       };
-      updated = [...students, newStudent];
+      updated = [newStudent, ...localStudents];
     }
 
+    setLocalStudents(updated);
     await api.saveMasterData({ students: updated });
     onRefreshData();
     setIsAddingStudent(false);
@@ -141,7 +161,8 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
   const handleDeleteStudent = async (id: string) => {
     if (confirm('Yakin ingin menghapus data siswa ini?')) {
-      const updated = students.filter((s) => s.id !== id);
+      const updated = localStudents.filter((s) => s.id !== id);
+      setLocalStudents(updated);
       setSelectedStudentIds((prev) => prev.filter((x) => x !== id));
       await api.saveMasterData({ students: updated });
       onRefreshData();
@@ -170,14 +191,15 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
         `Yakin ingin menghapus ${selectedStudentIds.length} siswa yang telah Anda pilih? Tindakan ini tidak dapat dibatalkan.`
       )
     ) {
-      const updated = students.filter((s) => !selectedStudentIds.includes(s.id));
+      const updated = localStudents.filter((s) => !selectedStudentIds.includes(s.id));
+      setLocalStudents(updated);
       setSelectedStudentIds([]);
       await api.saveMasterData({ students: updated });
       onRefreshData();
     }
   };
 
-  // Bulk Import Smart Parsing
+  // Bulk Import Smart Parsing with Universal Separator & Space/Numbered Support
   const handleParseBulkText = (text: string, targetClassOverride?: string) => {
     setBulkInputText(text);
     setBulkParseError('');
@@ -199,100 +221,124 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-
-      // Skip header if line contains words like NISN / Nama / Kelas / JK / No
       const lowerLine = line.toLowerCase();
-      if (
-        (lowerLine.includes('nisn') && lowerLine.includes('nama')) ||
-        (i === 0 && (lowerLine.startsWith('no\t') || lowerLine.startsWith('no,')))
-      ) {
+
+      // Skip header row if it contains descriptive column titles
+      const isHeader =
+        (lowerLine.includes('nisn') && (lowerLine.includes('nama') || lowerLine.includes('siswa'))) ||
+        lowerLine.startsWith('no\t') ||
+        lowerLine.startsWith('no,') ||
+        lowerLine.startsWith('no.') ||
+        lowerLine.startsWith('no |') ||
+        lowerLine.startsWith('no ') ||
+        (lowerLine.includes('nama lengkap') && lowerLine.includes('kelas')) ||
+        (lowerLine.includes('nomor') && lowerLine.includes('nama'));
+
+      if (isHeader) {
         continue;
       }
 
-      // Detect separator: Tab, Semicolon, Comma, Pipe, or multiple spaces
+      // Remove leading row number e.g. "1. ", "1) ", "[1] ", "1\t", "1 - "
+      const cleanLine = line.replace(/^\s*\[?\d{1,4}[.)\]]\s*[\t,-]?\s*/, '').trim();
+      if (!cleanLine) continue;
+
+      // Detect separator: Tab, Semicolon, Pipe, Comma, " - ", or multiple spaces
       let parts: string[] = [];
-      if (line.includes('\t')) {
-        parts = line.split('\t');
-      } else if (line.includes(';')) {
-        parts = line.split(';');
-      } else if (line.includes('|')) {
-        parts = line.split('|');
-      } else if (line.includes(',')) {
-        parts = line.split(',');
+      if (cleanLine.includes('\t')) {
+        parts = cleanLine.split('\t');
+      } else if (cleanLine.includes(';')) {
+        parts = cleanLine.split(';');
+      } else if (cleanLine.includes('|')) {
+        parts = cleanLine.split('|');
+      } else if (cleanLine.includes(',')) {
+        parts = cleanLine.split(',');
+      } else if (cleanLine.includes(' - ')) {
+        parts = cleanLine.split(' - ');
+      } else if (/\s{2,}/.test(cleanLine)) {
+        parts = cleanLine.split(/\s{2,}/);
       } else {
-        parts = line.split(/\s{2,}/);
+        // Space-separated fallback: check if starts or ends with numeric NISN (4-14 digits)
+        const nisnLeading = cleanLine.match(/^(\d{4,14})\s+(.+)$/);
+        const nisnTrailing = cleanLine.match(/^(.+?)\s+(\d{4,14})$/);
+        if (nisnLeading) {
+          parts = [nisnLeading[1], nisnLeading[2]];
+        } else if (nisnTrailing) {
+          parts = [nisnTrailing[2], nisnTrailing[1]];
+        } else {
+          // Just name provided
+          parts = [cleanLine];
+        }
       }
 
-      // Clean each part (trim and strip quotes)
-      parts = parts.map((p) => p.trim().replace(/^["']+|["']+$/g, '')).filter((p) => p.length > 0);
+      // Clean each part (strip quotes and whitespace)
+      parts = parts
+        .map((p) => p.trim().replace(/^["'\s]+|["'\s]+$/g, ''))
+        .filter((p) => p.length > 0);
 
-      // Handle common row index column (1, 2, 3...)
-      if (parts.length >= 3 && /^\d{1,3}\.?$/.test(parts[0]) && parts[1].length >= 3) {
-        parts = parts.slice(1);
-      }
+      if (parts.length === 0) continue;
 
-      if (parts.length >= 2) {
-        let col0 = parts[0];
-        let col1 = parts[1];
-        let nisnVal = '';
-        let nameVal = '';
+      let nisnVal = '';
+      let nameVal = '';
+      let classVal = localClasses[0]?.id || '1';
+      let genderVal: 'L' | 'P' = 'L';
 
-        // Determine if col0 is Name and col1 is NISN (or vice-versa)
+      if (parts.length === 1) {
+        // Only name is provided; auto-generate a valid 10-digit NISN
+        nameVal = parts[0];
+        nisnVal = '00' + Math.floor(10000000 + Math.random() * 90000000);
+      } else {
+        const col0 = parts[0];
+        const col1 = parts[1];
         const isCol0Numeric = /^[0-9]+$/.test(col0.replace(/[-\s]/g, ''));
         const isCol1Numeric = /^[0-9]+$/.test(col1.replace(/[-\s]/g, ''));
 
-        if (!isCol0Numeric && isCol1Numeric) {
+        if (isCol0Numeric && !isCol1Numeric) {
+          nisnVal = col0.replace(/[^0-9A-Za-z]/g, '');
+          nameVal = col1;
+        } else if (!isCol0Numeric && isCol1Numeric) {
           nameVal = col0;
           nisnVal = col1.replace(/[^0-9A-Za-z]/g, '');
         } else {
-          nisnVal = col0.replace(/[^0-9A-Za-z]/g, '');
+          nisnVal = col0.replace(/[^0-9A-Za-z]/g, '') || ('00' + Math.floor(10000000 + Math.random() * 90000000));
           nameVal = col1;
         }
 
-        // Determine Class
-        let classVal = classes[0]?.id || '1';
-        if (activeTargetClass && activeTargetClass !== 'auto') {
-          classVal = activeTargetClass;
-        } else if (parts[2]) {
-          const rawClass = parts[2].trim();
-          // Check if matches an existing class by ID or Name
-          const matchedClass = classes.find(
-            (c) =>
-              c.id.toLowerCase() === rawClass.toLowerCase() ||
-              c.name.toLowerCase() === rawClass.toLowerCase()
-          );
-          classVal = matchedClass ? matchedClass.id : rawClass;
+        // Parse remaining parts for Class and Gender
+        const remainingParts = parts.slice(2);
+        for (const rem of remainingParts) {
+          const upperRem = rem.toUpperCase();
+          if (['L', 'P', 'LAKI-LAKI', 'PEREMPUAN', 'PRIA', 'WANITA', 'M', 'F'].includes(upperRem)) {
+            genderVal = ['P', 'PEREMPUAN', 'WANITA', 'F'].includes(upperRem) ? 'P' : 'L';
+          } else {
+            // Check if matches an existing class by ID or Name
+            const matched = localClasses.find(
+              (c) =>
+                c.id.toLowerCase() === rem.toLowerCase() ||
+                c.name.toLowerCase() === rem.toLowerCase()
+            );
+            classVal = matched ? matched.id : rem;
+          }
         }
+      }
 
-        // Determine Gender
-        let genderVal: 'L' | 'P' = 'L';
-        const rawGenderCandidate = (parts[3] || parts[2] || '').trim().toUpperCase();
-        if (
-          rawGenderCandidate === 'P' ||
-          rawGenderCandidate === 'PEREMPUAN' ||
-          rawGenderCandidate === 'WANITA' ||
-          rawGenderCandidate === 'F' ||
-          rawGenderCandidate === 'FEMALE'
-        ) {
-          genderVal = 'P';
-        } else {
-          genderVal = 'L';
-        }
+      // If activeTargetClass is specified (not auto), override with that class
+      if (activeTargetClass && activeTargetClass !== 'auto') {
+        classVal = activeTargetClass;
+      }
 
-        if (nisnVal && nameVal) {
-          parsed.push({
-            nisn: nisnVal,
-            name: nameVal,
-            classId: classVal,
-            gender: genderVal,
-          });
-        }
+      if (nameVal) {
+        parsed.push({
+          nisn: nisnVal || ('00' + Math.floor(10000000 + Math.random() * 90000000)),
+          name: nameVal,
+          classId: classVal,
+          gender: genderVal,
+        });
       }
     }
 
     if (parsed.length === 0) {
       setBulkParseError(
-        'Format data belum dikenali. Pastikan minimal memiliki kolom NISN dan Nama Siswa (dipisah koma atau tab dari Excel).'
+        'Format data belum dikenali. Anda dapat menempelkan daftar NISN dan Nama dari Excel/Sheets, atau salinan daftar nama siswa.'
       );
     }
     setBulkParsedStudents(parsed);
@@ -305,7 +351,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
     try {
       // 1. Check for any new classes introduced in the import and auto-create them
-      const updatedClasses = [...classes];
+      const updatedClasses = [...localClasses];
       let hasNewClasses = false;
 
       bulkParsedStudents.forEach((st) => {
@@ -331,8 +377,9 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
         }
       });
 
-      // 2. Build updated students list
-      const updatedStudents = [...students];
+      // 2. Build updated students list (prepend newly added students so they are immediately visible at the top!)
+      const updatedStudents = [...localStudents];
+      const newlyAdded: Student[] = [];
       let addedCount = 0;
       let updatedCount = 0;
 
@@ -349,20 +396,33 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             updatedCount++;
           }
         } else {
-          updatedStudents.push({
+          const newSt: Student = {
             id: `STD-BULK-${Date.now()}-${idx}`,
             nisn: bp.nisn,
             name: bp.name,
             classId: bp.classId,
             gender: bp.gender,
-          });
+          };
+          newlyAdded.push(newSt);
           addedCount++;
         }
       });
 
+      // Prepend newly added students so they appear right at the top
+      const finalStudentsList = [...newlyAdded, ...updatedStudents];
+
+      // Update UI state IMMEDIATELY (optimistic local state)
+      setLocalStudents(finalStudentsList);
+      if (hasNewClasses) {
+        setLocalClasses(updatedClasses);
+      }
+      setNewlyImportedIds(newlyAdded.map((s) => s.id));
+      setSearchTerm('');
+      setSelectedClassFilter('all');
+
       // 3. Persist to API and localStorage
       await api.saveMasterData({
-        students: updatedStudents,
+        students: finalStudentsList,
         classes: hasNewClasses ? updatedClasses : undefined,
       });
 
@@ -372,6 +432,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
         total: addedCount + updatedCount,
       });
 
+      // Sync parent app state
       onRefreshData();
 
       // Auto close modal smoothly after brief confirmation
@@ -380,7 +441,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
         setBulkInputText('');
         setBulkParsedStudents([]);
         setBulkSuccessResult(null);
-      }, 1800);
+      }, 1500);
     } catch (err: any) {
       setBulkParseError(`Gagal menyimpan data siswa: ${err.message || 'Terjadi kesalahan sistem'}`);
     } finally {
@@ -411,7 +472,8 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       name: className.trim(),
       gradeLevel: classGrade,
     };
-    const updated = [...classes, newClass];
+    const updated = [...localClasses, newClass];
+    setLocalClasses(updated);
     await api.saveMasterData({ classes: updated });
     onRefreshData();
     setIsAddingClass(false);
@@ -420,7 +482,8 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
   const handleDeleteClass = async (id: string) => {
     if (confirm('Hapus rombel/kelas ini? Siswa yang terhubung mungkin perlu dipindahkan.')) {
-      const updated = classes.filter((c) => c.id !== id);
+      const updated = localClasses.filter((c) => c.id !== id);
+      setLocalClasses(updated);
       await api.saveMasterData({ classes: updated });
       onRefreshData();
     }
@@ -439,7 +502,8 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       kkm: Number(subjectKkm) || 75,
       teacherName: subjectTeacher,
     };
-    const updated = [...subjects, newSubject];
+    const updated = [...localSubjects, newSubject];
+    setLocalSubjects(updated);
     await api.saveMasterData({ subjects: updated });
     onRefreshData();
     setIsAddingSubject(false);
@@ -449,18 +513,32 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
   const handleDeleteSubject = async (id: string) => {
     if (confirm('Hapus mata pelajaran ini?')) {
-      const updated = subjects.filter((s) => s.id !== id);
+      const updated = localSubjects.filter((s) => s.id !== id);
+      setLocalSubjects(updated);
       await api.saveMasterData({ subjects: updated });
       onRefreshData();
     }
   };
 
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.nisn.includes(searchTerm) ||
-      s.classId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStudents = localStudents.filter((s) => {
+    const classObj = localClasses.find(
+      (c) => c.id === s.classId || c.name.toLowerCase() === s.classId.toLowerCase()
+    );
+    const classNameText = classObj?.name || '';
+    const query = searchTerm.toLowerCase().trim();
+
+    const matchesSearch =
+      !query ||
+      s.name.toLowerCase().includes(query) ||
+      s.nisn.includes(query) ||
+      s.classId.toLowerCase().includes(query) ||
+      classNameText.toLowerCase().includes(query);
+
+    const matchesClass =
+      selectedClassFilter === 'all' || s.classId === selectedClassFilter || classNameText.toLowerCase() === selectedClassFilter.toLowerCase();
+
+    return matchesSearch && matchesClass;
+  });
 
   return (
     <div className="space-y-6">
@@ -485,7 +563,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Data Siswa ({students.length})
+            Data Siswa ({localStudents.length})
           </button>
           <button
             onClick={() => setActiveTab('classes')}
@@ -495,7 +573,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Kelas & Jenjang ({classes.length})
+            Kelas & Jenjang ({localClasses.length})
           </button>
           <button
             onClick={() => setActiveTab('subjects')}
@@ -505,7 +583,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Mata Pelajaran ({subjects.length})
+            Mata Pelajaran ({localSubjects.length})
           </button>
         </div>
       </div>
@@ -514,19 +592,40 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       {activeTab === 'students' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
           {/* Top Toolbar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Cari NISN, nama, atau kelas..."
-                className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Cari NISN, nama, atau nama kelas..."
+                  className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Filter By Class Dropdown */}
+              <select
+                value={selectedClassFilter}
+                onChange={(e) => setSelectedClassFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="all">Semua Kelas ({localStudents.length} Siswa)</option>
+                {localClasses.map((cls) => {
+                  const countInClass = localStudents.filter(
+                    (s) => s.classId === cls.id || s.classId.toLowerCase() === cls.name.toLowerCase()
+                  ).length;
+                  return (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name} ({countInClass} Siswa)
+                    </option>
+                  );
+                })}
+              </select>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsBulkModalOpen(true)}
                 className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all flex-1 sm:flex-none"
@@ -544,6 +643,25 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Newly imported banner */}
+          {newlyImportedIds.length > 0 && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>{newlyImportedIds.length} Siswa baru berhasil ditambahkan!</strong> Data langsung tersimpan dan ditampilkan di urutan teratas tabel di bawah.
+                </span>
+              </div>
+              <button
+                onClick={() => setNewlyImportedIds([])}
+                className="text-emerald-700 hover:text-emerald-900 font-bold text-xs px-2 py-0.5 rounded hover:bg-emerald-100 cursor-pointer"
+                title="Tutup pemberitahuan"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Action Bar for Selected Students (Pilih Siswa) */}
           {selectedStudentIds.length > 0 && (
@@ -608,7 +726,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                   onChange={(e) => setStudentClassId(e.target.value)}
                   className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                 >
-                  {classes.map((cls) => (
+                  {localClasses.map((cls) => (
                     <option key={cls.id} value={cls.id}>
                       {cls.name} (Tingkat {cls.gradeLevel})
                     </option>
@@ -676,13 +794,16 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 ) : (
                   filteredStudents.map((s, idx) => {
                     const isSelected = selectedStudentIds.includes(s.id);
-                    const classInfo = classes.find((c) => c.id === s.classId);
+                    const isNew = newlyImportedIds.includes(s.id);
+                    const classInfo = localClasses.find(
+                      (c) => c.id === s.classId || c.name.toLowerCase() === s.classId.toLowerCase()
+                    );
 
                     return (
                       <tr
                         key={s.id}
                         className={`hover:bg-slate-50/80 transition-colors ${
-                          isSelected ? 'bg-indigo-50/40' : ''
+                          isSelected ? 'bg-indigo-50/40' : isNew ? 'bg-emerald-50/40' : ''
                         }`}
                       >
                         <td className="py-3 px-3 text-center">
@@ -700,8 +821,15 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                         </td>
                         <td className="py-3 px-3 font-bold text-slate-500">{idx + 1}</td>
                         <td className="py-3 px-4 font-mono font-bold text-slate-700">{s.nisn}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-800">{s.name}</td>
-                        <td className="py-3 px-4 text-slate-600">
+                        <td className="py-3 px-4 font-semibold text-slate-800 flex items-center gap-2">
+                          <span>{s.name}</span>
+                          {isNew && (
+                            <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[9px] uppercase tracking-wider">
+                              Baru
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 font-medium">
                           {classInfo?.name || s.classId}
                         </td>
                         <td className="py-3 px-4">
@@ -1060,7 +1188,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="auto">Deteksi Otomatis dari Kolom Kelas Data</option>
-                    {classes.map((cls) => (
+                    {localClasses.map((cls) => (
                       <option key={cls.id} value={cls.id}>
                         Semua Siswa Masuk: {cls.name} (Tingkat {cls.gradeLevel})
                       </option>
@@ -1142,7 +1270,9 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {bulkParsedStudents.slice(0, 20).map((st, i) => {
-                          const classObj = classes.find((c) => c.id === st.classId);
+                          const classObj = localClasses.find(
+                            (c) => c.id === st.classId || c.name.toLowerCase() === st.classId.toLowerCase()
+                          );
                           return (
                             <tr key={i} className="hover:bg-slate-50">
                               <td className="p-2 text-slate-400 font-bold">{i + 1}</td>

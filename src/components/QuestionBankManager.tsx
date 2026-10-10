@@ -1397,14 +1397,14 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                 <button
                   type="button"
                   onClick={handleConfirmDeploy}
-                  disabled={isDeploying || !deployToken.trim()}
+                  disabled={isDeploying}
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Play className="w-4 h-4 fill-current" />
                   <span>
                     {isDeploying
                       ? 'Meluncurkan Sesi...'
-                      : `Luncurkan Ujian (${deployToken.trim() || 'CBT'})`}
+                      : `Luncurkan Ujian (${deployToken.trim() || 'Otomatis'})`}
                   </span>
                 </button>
               </div>
