@@ -64,8 +64,10 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
   // Selected students state (Fitur Pilih)
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
-  // Student Add / Edit Form State
-  const [isAddingStudent, setIsAddingStudent] = useState(false);
+  // Student Add / Edit Modal State
+  const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+  const [studentFeedbackMsg, setStudentFeedbackMsg] = useState('');
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [studentNisn, setStudentNisn] = useState('');
   const [studentName, setStudentName] = useState('');
@@ -108,16 +110,20 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
     setStudentName('');
     setStudentClassId(localClasses[0]?.id || '');
     setStudentGender('L');
-    setIsAddingStudent(true);
+    setIsStudentModalOpen(true);
   };
 
   const handleOpenEditStudent = (st: Student) => {
     setEditingStudent(st);
     setStudentNisn(st.nisn);
     setStudentName(st.name);
-    setStudentClassId(st.classId);
-    setStudentGender(st.gender);
-    setIsAddingStudent(true);
+    // Find matching class ID or preserve current ID/Name
+    const matchedClass = localClasses.find(
+      (c) => c.id === st.classId || c.name.toLowerCase() === st.classId.toLowerCase()
+    );
+    setStudentClassId(matchedClass ? matchedClass.id : st.classId || localClasses[0]?.id || '');
+    setStudentGender(st.gender || 'L');
+    setIsStudentModalOpen(true);
   };
 
   const handleSaveStudent = async () => {
@@ -126,37 +132,49 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       return;
     }
 
-    let updated: Student[];
-    if (editingStudent) {
-      updated = localStudents.map((s) =>
-        s.id === editingStudent.id
-          ? {
-              ...s,
-              nisn: studentNisn.trim(),
-              name: studentName.trim(),
-              classId: studentClassId,
-              gender: studentGender,
-            }
-          : s
-      );
-    } else {
-      const newStudent: Student = {
-        id: `STD-${Date.now()}`,
-        nisn: studentNisn.trim(),
-        name: studentName.trim(),
-        classId: studentClassId,
-        gender: studentGender,
-      };
-      updated = [newStudent, ...localStudents];
-    }
+    setIsSavingStudent(true);
+    try {
+      let updated: Student[];
+      const trimmedNisn = studentNisn.trim();
+      const trimmedName = studentName.trim();
 
-    setLocalStudents(updated);
-    await api.saveMasterData({ students: updated });
-    onRefreshData();
-    setIsAddingStudent(false);
-    setEditingStudent(null);
-    setStudentNisn('');
-    setStudentName('');
+      if (editingStudent) {
+        updated = localStudents.map((s) =>
+          s.id === editingStudent.id
+            ? {
+                ...s,
+                nisn: trimmedNisn,
+                name: trimmedName,
+                classId: studentClassId,
+                gender: studentGender,
+              }
+            : s
+        );
+        setStudentFeedbackMsg(`Data siswa "${trimmedName}" berhasil diperbarui!`);
+      } else {
+        const newStudent: Student = {
+          id: `STD-${Date.now()}`,
+          nisn: trimmedNisn,
+          name: trimmedName,
+          classId: studentClassId,
+          gender: studentGender,
+        };
+        updated = [newStudent, ...localStudents];
+        setStudentFeedbackMsg(`Siswa baru "${trimmedName}" berhasil ditambahkan!`);
+      }
+
+      setLocalStudents(updated);
+      await api.saveMasterData({ students: updated });
+      onRefreshData();
+      setIsStudentModalOpen(false);
+      setEditingStudent(null);
+      setStudentNisn('');
+      setStudentName('');
+    } catch (err: any) {
+      alert('Gagal menyimpan data siswa: ' + (err.message || 'Terjadi kesalahan'));
+    } finally {
+      setIsSavingStudent(false);
+    }
   };
 
   const handleDeleteStudent = async (id: string) => {
@@ -688,71 +706,20 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             </div>
           )}
 
-          {/* Add / Edit Student Form */}
-          {isAddingStudent && (
-            <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200 grid grid-cols-1 sm:grid-cols-4 gap-3 animate-in fade-in duration-150">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 uppercase mb-1">
-                  NISN / Nomor Induk
-                </label>
-                <input
-                  type="text"
-                  value={studentNisn}
-                  onChange={(e) => setStudentNisn(e.target.value)}
-                  placeholder="0071234..."
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                />
+          {/* Student Feedback Toast / Notification */}
+          {studentFeedbackMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center justify-between animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{studentFeedbackMsg}</span>
               </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 uppercase mb-1">
-                  Nama Lengkap Siswa
-                </label>
-                <input
-                  type="text"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  placeholder="Nama peserta..."
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 uppercase mb-1">
-                  Rombel / Kelas
-                </label>
-                <select
-                  value={studentClassId}
-                  onChange={(e) => setStudentClassId(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                >
-                  {localClasses.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name} (Tingkat {cls.gradeLevel})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end gap-2">
-                <button
-                  type="button"
-                  onClick={handleSaveStudent}
-                  className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
-                >
-                  {editingStudent ? 'Simpan Perubahan' : 'Simpan Siswa'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddingStudent(false);
-                    setEditingStudent(null);
-                  }}
-                  className="px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
-                >
-                  Batal
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setStudentFeedbackMsg('')}
+                className="text-emerald-700 hover:text-emerald-900 font-bold px-1.5 py-0.5 rounded hover:bg-emerald-100 cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
           )}
 
@@ -1335,6 +1302,159 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                   <>
                     <CheckCircle className="w-4 h-4" />
                     <span>Simpan {bulkParsedStudents.length} Siswa</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DEDICATED ADD / EDIT STUDENT MODAL DIALOG */}
+      {isStudentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between bg-linear-to-r from-slate-900 to-indigo-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-white/10 rounded-xl">
+                  {editingStudent ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">
+                    {editingStudent ? 'Edit Data Siswa' : 'Tambah Siswa Baru'}
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    {editingStudent
+                      ? `Perbarui informasi peserta didik: ${editingStudent.name}`
+                      : 'Masukkan data identitas siswa baru ke sistem CBT'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStudentModalOpen(false);
+                  setEditingStudent(null);
+                }}
+                className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">
+                  NISN / Nomor Induk Siswa <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={studentNisn}
+                  onChange={(e) => setStudentNisn(e.target.value)}
+                  placeholder="Contoh: 0071234001"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  NISN digunakan sebagai akun login bagi siswa saat membuka ujian.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">
+                  Nama Lengkap Siswa <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                  placeholder="Contoh: Muhammad Rizky Pratama"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">
+                    Rombel / Kelas <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={studentClassId}
+                    onChange={(e) => setStudentClassId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    {localClasses.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name} (Tingkat {cls.gradeLevel})
+                      </option>
+                    ))}
+                    {/* Fallback if student has custom class ID */}
+                    {studentClassId && !localClasses.some((c) => c.id === studentClassId) && (
+                      <option value={studentClassId}>{studentClassId}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">
+                    Jenis Kelamin <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStudentGender('L')}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                        studentGender === 'L'
+                          ? 'bg-blue-50 border-blue-400 text-blue-800 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>L (Laki-laki)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStudentGender('P')}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                        studentGender === 'P'
+                          ? 'bg-pink-50 border-pink-400 text-pink-800 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>P (Perempuan)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStudentModalOpen(false);
+                  setEditingStudent(null);
+                }}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStudent}
+                disabled={isSavingStudent || !studentName.trim() || !studentNisn.trim()}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer transition-all"
+              >
+                {isSavingStudent ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>{editingStudent ? 'Simpan Perubahan' : 'Tambahkan Siswa'}</span>
                   </>
                 )}
               </button>
