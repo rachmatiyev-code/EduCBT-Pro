@@ -50,6 +50,32 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [sessionToken, setSessionToken] = useState('CBT-2026');
   const [studentError, setStudentError] = useState('');
 
+  // Local teachers state to guarantee immediate optimistic availability in the UI & persistence
+  const [localTeachers, setLocalTeachers] = useState<Teacher[]>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) {
+        const map = new Map<string, Teacher>();
+        teachers.forEach((t) => map.set(t.id, t));
+        cached.forEach((t: Teacher) => map.set(t.id, { ...map.get(t.id), ...t }));
+        return Array.from(map.values());
+      }
+    } catch {}
+    return teachers;
+  });
+
+  // Sync with prop teachers while preserving newly added teachers
+  useEffect(() => {
+    if (teachers && teachers.length > 0) {
+      setLocalTeachers((prev) => {
+        const map = new Map<string, Teacher>();
+        prev.forEach((t) => map.set(t.id, t));
+        teachers.forEach((t) => map.set(t.id, { ...map.get(t.id), ...t }));
+        return Array.from(map.values());
+      });
+    }
+  }, [teachers]);
+
   // Teacher login fields
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [teacherPassword, setTeacherPassword] = useState('1234');
@@ -67,27 +93,32 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
     } catch {}
     if (fallbackTeacher?.password) return fallbackTeacher.password;
-    const match = teachers.find((t) => t.id === teacherId);
+    const match = localTeachers.find((t) => t.id === teacherId);
     return match?.password || '1234';
   };
 
-  // Sync selected teacher & password when list loads or changes
+  // Sync selected teacher & password when local teachers load or change
   useEffect(() => {
-    if (teachers.length > 0) {
+    if (localTeachers.length > 0) {
       const lastId = localStorage.getItem('educbt_last_teacher_id');
-      const targetId = (lastId && teachers.some((t) => t.id === lastId)) ? lastId : (selectedTeacherId && teachers.some((t) => t.id === selectedTeacherId)) ? selectedTeacherId : teachers[0].id;
+      const targetId = (lastId && localTeachers.some((t) => t.id === lastId))
+        ? lastId
+        : (selectedTeacherId && localTeachers.some((t) => t.id === selectedTeacherId))
+        ? selectedTeacherId
+        : localTeachers[0].id;
+
       if (targetId !== selectedTeacherId) {
         setSelectedTeacherId(targetId);
       }
-      const targetTeacher = teachers.find((t) => t.id === targetId);
+      const targetTeacher = localTeachers.find((t) => t.id === targetId);
       const savedPass = getSavedPasswordForTeacher(targetId, targetTeacher);
       setTeacherPassword(savedPass);
     }
-  }, [teachers]);
+  }, [localTeachers]);
 
   const handleSelectTeacher = (id: string) => {
     setSelectedTeacherId(id);
-    const targetTeacher = teachers.find((t) => t.id === id);
+    const targetTeacher = localTeachers.find((t) => t.id === id);
     const savedPass = getSavedPasswordForTeacher(id, targetTeacher);
     setTeacherPassword(savedPass);
     try {
@@ -148,16 +179,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setTeacherError('');
     setNotificationMsg(null);
 
-    const t = teachers.find((x) => x.id === selectedTeacherId) || teachers[0];
+    const t = localTeachers.find((x) => x.id === selectedTeacherId) || localTeachers[0];
     if (!t) {
       setTeacherError('Pilih akun guru terlebih dahulu.');
       return;
     }
 
-    const expectedPassword = t.password || '1234';
+    const savedPass = getSavedPasswordForTeacher(t.id, t);
+    const expectedPassword = savedPass || t.password || '1234';
     if (teacherPassword.trim() !== expectedPassword) {
       setTeacherError(
-        `Kata sandi tidak sesuai! Silakan periksa kembali atau gunakan menu "Edit Kata Sandi" untuk memperbarui kata sandi akun ${t.name}.`
+        `Kata sandi tidak sesuai untuk akun "${t.name}"! Silakan periksa kembali atau gunakan menu "Edit Kata Sandi" untuk memperbarui kata sandi akun ini.`
       );
       return;
     }
@@ -210,35 +242,57 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         password: cleanPassword,
       });
 
-      if (res && res.success && res.teacher) {
-        if (onAddTeacher) {
-          onAddTeacher(res.teacher);
-        }
-        // Save to remembered credentials immediately
-        try {
-          localStorage.setItem('educbt_last_teacher_id', res.teacher.id);
-          const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
-          passMap[res.teacher.id] = cleanPassword;
-          localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
-        } catch {}
+      const fallbackTeacher: Teacher = {
+        id: `T${Date.now()}`,
+        name: newTeacherName.trim(),
+        nip: newTeacherNip.trim() || '-',
+        email: newTeacherEmail.trim() || `${newTeacherName.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
+        role: newTeacherRole,
+        subjectIds: ['SUB-01'],
+        password: cleanPassword,
+      };
 
-        setSelectedTeacherId(res.teacher.id);
-        setTeacherPassword(cleanPassword);
-        setTeacherView('login');
-        setTeacherError('');
-        setNotificationMsg({
-          type: 'success',
-          text: `Akun Guru "${res.teacher.name}" berhasil didaftarkan dan kata sandi tersimpan otomatis! Silakan klik Masuk.`,
-        });
+      const finalTeacher: Teacher = res && res.teacher ? res.teacher : fallbackTeacher;
 
-        // Reset registration fields
-        setNewTeacherName('');
-        setNewTeacherNip('');
-        setNewTeacherEmail('');
-        setNewTeacherPassword('1234');
-        setNewTeacherConfirmPass('1234');
-      } else {
-        setRegisterError(res?.error || 'Gagal mendaftarkan akun guru.');
+      // 1. Immediately update local optimistic teacher state
+      setLocalTeachers((prev) => {
+        const filtered = prev.filter((t) => t.id !== finalTeacher.id);
+        return [finalTeacher, ...filtered];
+      });
+
+      // 2. Persist to localStorage immediately
+      try {
+        localStorage.setItem('educbt_last_teacher_id', finalTeacher.id);
+        const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+        passMap[finalTeacher.id] = cleanPassword;
+        localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+
+        const cachedTeachers: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+        const updatedTeachers = cachedTeachers.filter((t) => t.id !== finalTeacher.id);
+        updatedTeachers.push(finalTeacher);
+        localStorage.setItem('educbt_custom_teachers', JSON.stringify(updatedTeachers));
+      } catch {}
+
+      // 3. Select this new teacher & prefill password
+      setSelectedTeacherId(finalTeacher.id);
+      setTeacherPassword(cleanPassword);
+      setTeacherView('login');
+      setTeacherError('');
+      setNotificationMsg({
+        type: 'success',
+        text: `Akun Guru "${finalTeacher.name}" berhasil didaftarkan dan tersimpan! Akun ini telah aktif di dropdown dan kata sandi terisi otomatis. Silakan klik Masuk.`,
+      });
+
+      // 4. Reset registration fields
+      setNewTeacherName('');
+      setNewTeacherNip('');
+      setNewTeacherEmail('');
+      setNewTeacherPassword('1234');
+      setNewTeacherConfirmPass('1234');
+
+      // 5. Notify parent app
+      if (onAddTeacher) {
+        onAddTeacher(finalTeacher);
       }
     } catch (err: any) {
       // Graceful local fallback so user is NEVER blocked by network/proxy errors
@@ -251,14 +305,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         subjectIds: ['SUB-01'],
         password: cleanPassword,
       };
-      if (onAddTeacher) {
-        onAddTeacher(fallbackTeacher);
-      }
+
+      setLocalTeachers((prev) => {
+        const filtered = prev.filter((t) => t.id !== fallbackTeacher.id);
+        return [fallbackTeacher, ...filtered];
+      });
+
       try {
         localStorage.setItem('educbt_last_teacher_id', fallbackTeacher.id);
         const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
         passMap[fallbackTeacher.id] = cleanPassword;
         localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+
+        const cachedTeachers: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+        const updatedTeachers = cachedTeachers.filter((t) => t.id !== fallbackTeacher.id);
+        updatedTeachers.push(fallbackTeacher);
+        localStorage.setItem('educbt_custom_teachers', JSON.stringify(updatedTeachers));
       } catch {}
 
       setSelectedTeacherId(fallbackTeacher.id);
@@ -273,15 +335,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setNewTeacherEmail('');
       setNewTeacherPassword('1234');
       setNewTeacherConfirmPass('1234');
+
+      if (onAddTeacher) {
+        onAddTeacher(fallbackTeacher);
+      }
     } finally {
       setIsSubmittingRegister(false);
     }
   };
 
   const handleOpenEditPassword = () => {
-    const targetId = selectedTeacherId || teachers[0]?.id || '';
+    const targetId = selectedTeacherId || localTeachers[0]?.id || '';
     setEditTeacherId(targetId);
-    const targetTeacher = teachers.find((t) => t.id === targetId);
+    const targetTeacher = localTeachers.find((t) => t.id === targetId);
     const currentPass = getSavedPasswordForTeacher(targetId, targetTeacher);
     setOldPassword(currentPass);
     setNewPassword('');
@@ -323,6 +389,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           ...editTeacherObj,
           password: cleanNewPass,
         };
+
+        setLocalTeachers((prev) =>
+          prev.map((t) => (t.id === editTeacherId ? { ...t, password: cleanNewPass } : t))
+        );
+
         if (onTeacherPasswordChanged) {
           onTeacherPasswordChanged(updatedTeacher);
         }
@@ -332,6 +403,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           passMap[editTeacherId] = cleanNewPass;
           localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
           localStorage.setItem('educbt_last_teacher_id', editTeacherId);
+
+          const cachedTeachers: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+          const updatedCached = cachedTeachers.map((t) => (t.id === editTeacherId ? { ...t, password: cleanNewPass } : t));
+          localStorage.setItem('educbt_custom_teachers', JSON.stringify(updatedCached));
         } catch {}
 
         if (selectedTeacherId === editTeacherId) {
@@ -352,6 +427,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         ...editTeacherObj,
         password: cleanNewPass,
       };
+
+      setLocalTeachers((prev) =>
+        prev.map((t) => (t.id === editTeacherId ? { ...t, password: cleanNewPass } : t))
+      );
+
       if (onTeacherPasswordChanged) {
         onTeacherPasswordChanged(updatedTeacher);
       }
@@ -360,6 +440,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         passMap[editTeacherId] = cleanNewPass;
         localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
         localStorage.setItem('educbt_last_teacher_id', editTeacherId);
+
+        const cachedTeachers: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+        const updatedCached = cachedTeachers.map((t) => (t.id === editTeacherId ? { ...t, password: cleanNewPass } : t));
+        localStorage.setItem('educbt_custom_teachers', JSON.stringify(updatedCached));
       } catch {}
 
       if (selectedTeacherId === editTeacherId) {
@@ -375,8 +459,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  const selectedTeacherObj = teachers.find((t) => t.id === selectedTeacherId) || teachers[0];
-  const editTeacherObj = teachers.find((t) => t.id === editTeacherId) || selectedTeacherObj;
+  const selectedTeacherObj = localTeachers.find((t) => t.id === selectedTeacherId) || localTeachers[0];
+  const editTeacherObj = localTeachers.find((t) => t.id === editTeacherId) || selectedTeacherObj;
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
@@ -689,14 +773,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   value={editTeacherId}
                   onChange={(e) => {
                     setEditTeacherId(e.target.value);
-                    const selected = teachers.find((t) => t.id === e.target.value);
-                    setOldPassword(selected?.password || '1234');
+                    const selected = localTeachers.find((t) => t.id === e.target.value);
+                    const saved = getSavedPasswordForTeacher(e.target.value, selected);
+                    setOldPassword(saved);
                   }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 >
-                  {teachers.map((t) => (
+                  {localTeachers.map((t) => (
                     <option key={t.id} value={t.id}>
-                      Guru: {t.name} ({t.role.toUpperCase()})
+                      Guru: {t.name} ({t.role.toUpperCase()}) {t.nip && t.nip !== '-' ? `• NIP: ${t.nip}` : ''}
                     </option>
                   ))}
                 </select>
@@ -863,14 +948,32 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     <optgroup label="Daftar Akun Guru Terdaftar">
-                      {teachers.map((t) => (
+                      {localTeachers.map((t) => (
                         <option key={t.id} value={t.id}>
-                          Guru: {t.name} ({t.role.toUpperCase()})
+                          Guru: {t.name} ({t.role.toUpperCase()}) {t.nip && t.nip !== '-' ? `• NIP: ${t.nip}` : ''}
                         </option>
                       ))}
                     </optgroup>
                   </select>
                 </div>
+
+                {/* Info Akun Guru yang Terpilih */}
+                {selectedTeacherObj && (
+                  <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-200/80 text-indigo-700 flex items-center justify-center font-bold text-[10px] shrink-0">
+                        {selectedTeacherObj.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 truncate">{selectedTeacherObj.name}</p>
+                        <p className="text-[10px] text-slate-500 font-mono">NIP: {selectedTeacherObj.nip || '-'}</p>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 shrink-0">
+                      {selectedTeacherObj.role}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Password Input dengan Bawaan "1234" & Menu Edit Kata Sandi */}

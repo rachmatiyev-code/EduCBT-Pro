@@ -149,17 +149,7 @@ export default function App() {
             if (exists) return prev.map((t) => (t.id === newTeacher.id ? newTeacher : t));
             return [...prev, newTeacher];
           });
-          api.fetchAllData().then((data) => {
-            if (data?.teachers) {
-              setTeachers((prev) => {
-                const merged = [...data.teachers];
-                if (!merged.some((t) => t.id === newTeacher.id)) {
-                  merged.push(newTeacher);
-                }
-                return merged;
-              });
-            }
-          });
+          loadInitialData();
         }}
         onTeacherPasswordChanged={(updatedTeacher) => {
           setTeachers((prev) =>

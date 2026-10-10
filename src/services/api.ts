@@ -45,6 +45,11 @@ export const api = {
             }
           });
         }
+
+        // Keep local cache up to date with full teacher roster
+        if (result && Array.isArray(result.teachers)) {
+          localStorage.setItem('educbt_custom_teachers', JSON.stringify(result.teachers));
+        }
       } catch (e) {
         // ignore localStorage error
       }
@@ -56,10 +61,13 @@ export const api = {
           const localStudents: Student[] = JSON.parse(localStudentsJson);
           if (Array.isArray(localStudents)) {
             localStudents.forEach((ls) => {
-              const exists = result.students.some(
+              const idx = result.students.findIndex(
                 (s: Student) => s.id === ls.id || (s.nisn && ls.nisn && s.nisn === ls.nisn)
               );
-              if (!exists) {
+              if (idx >= 0) {
+                // Prioritize local student updates so edited data is preserved
+                result.students[idx] = { ...result.students[idx], ...ls };
+              } else {
                 result.students.push(ls);
               }
             });

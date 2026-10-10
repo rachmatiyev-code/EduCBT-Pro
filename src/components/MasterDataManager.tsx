@@ -115,14 +115,17 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
 
   const handleOpenEditStudent = (st: Student) => {
     setEditingStudent(st);
-    setStudentNisn(st.nisn);
-    setStudentName(st.name);
-    // Find matching class ID or preserve current ID/Name
+    setStudentNisn(st.nisn || '');
+    setStudentName(st.name || '');
+    const stClassId = (st.classId || '').trim();
+    // Safe match against class ID or Name (with null/undefined safety)
     const matchedClass = localClasses.find(
-      (c) => c.id === st.classId || c.name.toLowerCase() === st.classId.toLowerCase()
+      (c) =>
+        c.id === stClassId ||
+        (c.name && stClassId && c.name.toLowerCase() === stClassId.toLowerCase())
     );
-    setStudentClassId(matchedClass ? matchedClass.id : st.classId || localClasses[0]?.id || '');
-    setStudentGender(st.gender || 'L');
+    setStudentClassId(matchedClass ? matchedClass.id : stClassId || localClasses[0]?.id || '');
+    setStudentGender(st.gender === 'P' ? 'P' : 'L');
     setIsStudentModalOpen(true);
   };
 
@@ -139,17 +142,38 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       const trimmedName = studentName.trim();
 
       if (editingStudent) {
-        updated = localStudents.map((s) =>
-          s.id === editingStudent.id
-            ? {
-                ...s,
-                nisn: trimmedNisn,
-                name: trimmedName,
-                classId: studentClassId,
-                gender: studentGender,
-              }
-            : s
-        );
+        let matched = false;
+        updated = localStudents.map((s) => {
+          const isTarget =
+            (editingStudent.id && s.id === editingStudent.id) ||
+            (editingStudent.nisn && s.nisn === editingStudent.nisn);
+
+          if (isTarget && !matched) {
+            matched = true;
+            return {
+              ...s,
+              id: s.id || editingStudent.id || `STD-${Date.now()}`,
+              nisn: trimmedNisn,
+              name: trimmedName,
+              classId: studentClassId,
+              gender: studentGender,
+            };
+          }
+          return s;
+        });
+
+        // If target wasn't found in array, prepend the updated student
+        if (!matched) {
+          const editedItem: Student = {
+            id: editingStudent.id || `STD-${Date.now()}`,
+            nisn: trimmedNisn,
+            name: trimmedName,
+            classId: studentClassId,
+            gender: studentGender,
+          };
+          updated = [editedItem, ...localStudents];
+        }
+
         setStudentFeedbackMsg(`Data siswa "${trimmedName}" berhasil diperbarui!`);
       } else {
         const newStudent: Student = {
@@ -164,6 +188,10 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       }
 
       setLocalStudents(updated);
+      try {
+        localStorage.setItem('educbt_master_students', JSON.stringify(updated));
+      } catch {}
+
       await api.saveMasterData({ students: updated });
       onRefreshData();
       setIsStudentModalOpen(false);
@@ -539,21 +567,26 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
   };
 
   const filteredStudents = localStudents.filter((s) => {
+    const sClassId = (s.classId || '').trim();
+    const sName = (s.name || '').trim();
+    const sNisn = (s.nisn || '').trim();
     const classObj = localClasses.find(
-      (c) => c.id === s.classId || c.name.toLowerCase() === s.classId.toLowerCase()
+      (c) => c.id === sClassId || (c.name && sClassId && c.name.toLowerCase() === sClassId.toLowerCase())
     );
     const classNameText = classObj?.name || '';
     const query = searchTerm.toLowerCase().trim();
 
     const matchesSearch =
       !query ||
-      s.name.toLowerCase().includes(query) ||
-      s.nisn.includes(query) ||
-      s.classId.toLowerCase().includes(query) ||
+      sName.toLowerCase().includes(query) ||
+      sNisn.includes(query) ||
+      sClassId.toLowerCase().includes(query) ||
       classNameText.toLowerCase().includes(query);
 
     const matchesClass =
-      selectedClassFilter === 'all' || s.classId === selectedClassFilter || classNameText.toLowerCase() === selectedClassFilter.toLowerCase();
+      selectedClassFilter === 'all' ||
+      sClassId === selectedClassFilter ||
+      (classNameText && classNameText.toLowerCase() === selectedClassFilter.toLowerCase());
 
     return matchesSearch && matchesClass;
   });
@@ -762,8 +795,9 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                   filteredStudents.map((s, idx) => {
                     const isSelected = selectedStudentIds.includes(s.id);
                     const isNew = newlyImportedIds.includes(s.id);
+                    const sClassId = (s.classId || '').trim();
                     const classInfo = localClasses.find(
-                      (c) => c.id === s.classId || c.name.toLowerCase() === s.classId.toLowerCase()
+                      (c) => c.id === sClassId || (c.name && sClassId && c.name.toLowerCase() === sClassId.toLowerCase())
                     );
 
                     return (
@@ -777,7 +811,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                           <button
                             type="button"
                             onClick={() => handleToggleSelectStudent(s.id)}
-                            className="p-1"
+                            className="p-1 cursor-pointer"
                           >
                             {isSelected ? (
                               <CheckSquare className="w-4 h-4 text-indigo-600" />
@@ -797,7 +831,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                           )}
                         </td>
                         <td className="py-3 px-4 text-slate-600 font-medium">
-                          {classInfo?.name || s.classId}
+                          {classInfo?.name || s.classId || '-'}
                         </td>
                         <td className="py-3 px-4">
                           <span
@@ -807,22 +841,24 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                                 : 'bg-blue-50 text-blue-700'
                             }`}
                           >
-                            {s.gender}
+                            {s.gender || 'L'}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
+                              type="button"
                               onClick={() => handleOpenEditStudent(s)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                              title="Edit siswa"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                              title={`Edit data siswa: ${s.name}`}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleDeleteStudent(s.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Hapus siswa"
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title={`Hapus data siswa: ${s.name}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
