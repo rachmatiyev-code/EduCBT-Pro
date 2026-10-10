@@ -145,9 +145,8 @@ export default function App() {
         onLoginStudent={handleLoginStudent}
         onAddTeacher={(newTeacher) => {
           setTeachers((prev) => {
-            const exists = prev.some((t) => t.id === newTeacher.id);
-            if (exists) return prev.map((t) => (t.id === newTeacher.id ? newTeacher : t));
-            return [...prev, newTeacher];
+            const filtered = prev.filter((t) => t.id !== newTeacher.id);
+            return [newTeacher, ...filtered];
           });
           loadInitialData();
         }}

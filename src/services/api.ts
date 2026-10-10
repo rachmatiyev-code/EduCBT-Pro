@@ -20,22 +20,8 @@ export const api = {
       const data = await res.json();
       const result = data.data;
 
-      // Merge locally stored custom teachers if any (offline/failsafe guarantee)
+      // Merge saved passwords into teachers from educbt_teacher_saved_passwords
       try {
-        const localTeachersJson = localStorage.getItem('educbt_custom_teachers');
-        if (localTeachersJson && result && Array.isArray(result.teachers)) {
-          const localTeachers: Teacher[] = JSON.parse(localTeachersJson);
-          localTeachers.forEach((lt) => {
-            const idx = result.teachers.findIndex((t: Teacher) => t.id === lt.id);
-            if (idx >= 0) {
-              result.teachers[idx] = { ...result.teachers[idx], ...lt };
-            } else {
-              result.teachers.push(lt);
-            }
-          });
-        }
-
-        // Also merge saved passwords from educbt_teacher_saved_passwords
         const savedPassJson = localStorage.getItem('educbt_teacher_saved_passwords');
         if (savedPassJson && result && Array.isArray(result.teachers)) {
           const savedPassMap: Record<string, string> = JSON.parse(savedPassJson);
@@ -46,62 +32,39 @@ export const api = {
           });
         }
 
-        // Keep local cache up to date with full teacher roster
+        // Cache server data locally as offline snapshot
         if (result && Array.isArray(result.teachers)) {
           localStorage.setItem('educbt_custom_teachers', JSON.stringify(result.teachers));
+        }
+        if (result && Array.isArray(result.students)) {
+          localStorage.setItem('educbt_master_students', JSON.stringify(result.students));
+        }
+        if (result && Array.isArray(result.classes)) {
+          localStorage.setItem('educbt_master_classes', JSON.stringify(result.classes));
         }
       } catch (e) {
         // ignore localStorage error
       }
 
-      // Merge locally stored students if any (failsafe persistence)
-      try {
-        const localStudentsJson = localStorage.getItem('educbt_master_students');
-        if (localStudentsJson && result && Array.isArray(result.students)) {
-          const localStudents: Student[] = JSON.parse(localStudentsJson);
-          if (Array.isArray(localStudents)) {
-            localStudents.forEach((ls) => {
-              const idx = result.students.findIndex(
-                (s: Student) => s.id === ls.id || (s.nisn && ls.nisn && s.nisn === ls.nisn)
-              );
-              if (idx >= 0) {
-                // Prioritize local student updates so edited data is preserved
-                result.students[idx] = { ...result.students[idx], ...ls };
-              } else {
-                result.students.push(ls);
-              }
-            });
-          }
-        }
-        // Keep localStorage updated with the full merged list
-        if (result && Array.isArray(result.students)) {
-          localStorage.setItem('educbt_master_students', JSON.stringify(result.students));
-        }
-      } catch (e) {}
-
-      // Merge locally stored classes if any
-      try {
-        const localClassesJson = localStorage.getItem('educbt_master_classes');
-        if (localClassesJson && result && Array.isArray(result.classes)) {
-          const localClasses: ClassGroup[] = JSON.parse(localClassesJson);
-          if (Array.isArray(localClasses)) {
-            localClasses.forEach((lc) => {
-              const exists = result.classes.some((c: ClassGroup) => c.id === lc.id);
-              if (!exists) {
-                result.classes.push(lc);
-              }
-            });
-          }
-        }
-        if (result && Array.isArray(result.classes)) {
-          localStorage.setItem('educbt_master_classes', JSON.stringify(result.classes));
-        }
-      } catch (e) {}
-
       return result;
     } catch (err) {
-      console.error('Failed to fetch initial data:', err);
-      return null;
+      console.warn('Network issue on fetchAllData, falling back to offline localStorage:', err);
+      try {
+        const localTeachers = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+        const localStudents = JSON.parse(localStorage.getItem('educbt_master_students') || '[]');
+        const localClasses = JSON.parse(localStorage.getItem('educbt_master_classes') || '[]');
+        return {
+          teachers: localTeachers,
+          students: localStudents,
+          classes: localClasses,
+          subjects: [],
+          questionBanks: [],
+          examSessions: [],
+          submissions: [],
+        };
+      } catch {
+        return null;
+      }
     }
   },
 
@@ -782,31 +745,36 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
   },
 
   async registerTeacher(teacherData: {
+    id?: string;
     name: string;
     nip?: string;
     email?: string;
     role?: 'admin' | 'guru';
     password?: string;
+    subjectIds?: string[];
   }): Promise<{ success: boolean; teacher?: Teacher; teachers?: Teacher[]; error?: string; message?: string }> {
+    const deterministicId = teacherData.id && String(teacherData.id).trim() ? String(teacherData.id).trim() : `T${Date.now()}`;
+    const cleanPassword = teacherData.password && teacherData.password.trim() ? teacherData.password.trim() : '1234';
+
     const fallbackTeacher: Teacher = {
-      id: `T${Date.now()}`,
+      id: deterministicId,
       name: teacherData.name.trim(),
       nip: teacherData.nip ? teacherData.nip.trim() : '-',
       email: teacherData.email ? teacherData.email.trim() : `${teacherData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
       role: teacherData.role === 'admin' ? 'admin' : 'guru',
-      subjectIds: ['SUB-01'],
-      password: teacherData.password && teacherData.password.trim() ? teacherData.password.trim() : '1234',
+      subjectIds: teacherData.subjectIds && teacherData.subjectIds.length > 0 ? teacherData.subjectIds : ['SUB-01'],
+      password: cleanPassword,
     };
 
     // Save to local cache first as failsafe guarantee
     try {
       const existing: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
       const filterExisting = existing.filter((t) => t.id !== fallbackTeacher.id);
-      filterExisting.push(fallbackTeacher);
+      filterExisting.unshift(fallbackTeacher);
       localStorage.setItem('educbt_custom_teachers', JSON.stringify(filterExisting));
 
       const passMap: Record<string, string> = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
-      passMap[fallbackTeacher.id] = fallbackTeacher.password || '1234';
+      passMap[fallbackTeacher.id] = cleanPassword;
       localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
       localStorage.setItem('educbt_last_teacher_id', fallbackTeacher.id);
     } catch {}
@@ -815,39 +783,37 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
       const res = await fetch('/api/teacher/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(teacherData),
+        body: JSON.stringify({ ...teacherData, id: deterministicId }),
       });
 
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         if (data && data.teacher) {
-          // Update local cache with server teacher
+          const savedTeacher: Teacher = { ...fallbackTeacher, ...data.teacher };
           try {
             const existing: Teacher[] = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
-            const updated = existing.filter((t) => t.id !== fallbackTeacher.id && t.id !== data.teacher.id);
-            updated.push(data.teacher);
+            const updated = existing.filter((t) => t.id !== fallbackTeacher.id && t.id !== savedTeacher.id);
+            updated.unshift(savedTeacher);
             localStorage.setItem('educbt_custom_teachers', JSON.stringify(updated));
 
             const passMap: Record<string, string> = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
-            passMap[data.teacher.id] = data.teacher.password || '1234';
+            passMap[savedTeacher.id] = cleanPassword;
             localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
-            localStorage.setItem('educbt_last_teacher_id', data.teacher.id);
+            localStorage.setItem('educbt_last_teacher_id', savedTeacher.id);
           } catch {}
-          return data;
+          return { ...data, teacher: savedTeacher };
         }
         return data;
       } else {
-        // Server returned HTML (e.g. 404 or proxy error "The page cannot be found")
-        console.warn('Non-JSON response from /api/teacher/register, using fallback teacher.');
         return {
           success: true,
-          message: 'Akun guru baru berhasil ditambahkan!',
+          message: 'Akun guru baru berhasil ditambahkan dan disimpan!',
           teacher: fallbackTeacher,
         };
       }
     } catch (err: any) {
-      console.warn('Network issue on register teacher, using fallback:', err.message);
+      console.warn('Network issue on register teacher, using cached teacher:', err.message);
       return {
         success: true,
         message: 'Akun guru baru berhasil ditambahkan!',

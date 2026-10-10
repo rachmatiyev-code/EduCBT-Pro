@@ -563,7 +563,11 @@ app.post('/api/data/master', (req, res) => {
     saveDataStore();
     return res.json({
       success: true,
-      message: 'Data master berhasil diperbarui.',
+      message: 'Data master berhasil diperbarui dan tersimpan permanen.',
+      students: examDataStore.students,
+      classes: examDataStore.classes,
+      subjects: examDataStore.subjects,
+      teachers: examDataStore.teachers,
       studentsCount: examDataStore.students.length,
       classesCount: examDataStore.classes.length,
     });
@@ -603,25 +607,41 @@ app.post('/api/teacher/change-password', (req, res) => {
 
 app.post('/api/teacher/register', (req, res) => {
   try {
-    const { name, nip, email, role, password, subjectIds } = req.body || {};
+    const { id, name, nip, email, role, password, subjectIds } = req.body || {};
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Nama guru wajib diisi.' });
     }
 
+    const cleanName = name.trim();
+    const cleanNip = nip && nip.trim() ? nip.trim() : '-';
+    const teacherId = id && String(id).trim() ? String(id).trim() : `T${Date.now()}`;
+    const cleanPassword = password && String(password).trim() ? String(password).trim() : '1234';
+
     const newTeacher = {
-      id: `T${Date.now()}`,
-      name: name.trim(),
-      nip: nip ? nip.trim() : '-',
-      email: email ? email.trim() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
+      id: teacherId,
+      name: cleanName,
+      nip: cleanNip,
+      email: email && email.trim() ? email.trim() : `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}@sekolah.sch.id`,
       role: role === 'admin' ? 'admin' : 'guru',
-      subjectIds: Array.isArray(subjectIds) ? subjectIds : ['SUB-01'],
-      password: password && password.trim() ? password.trim() : '1234',
+      subjectIds: Array.isArray(subjectIds) && subjectIds.length > 0 ? subjectIds : ['SUB-01'],
+      password: cleanPassword,
     };
 
-    // Ensure not duplicate id
-    const existingIdx = examDataStore.teachers.findIndex((t) => t.id === newTeacher.id);
+    // Check if teacher already exists by ID, NIP (if not '-'), or exact name
+    const existingIdx = examDataStore.teachers.findIndex(
+      (t) =>
+        t.id === newTeacher.id ||
+        (cleanNip !== '-' && t.nip && t.nip.trim() === cleanNip) ||
+        (t.name && t.name.trim().toLowerCase() === cleanName.toLowerCase())
+    );
+
     if (existingIdx >= 0) {
-      examDataStore.teachers[existingIdx] = newTeacher;
+      examDataStore.teachers[existingIdx] = {
+        ...examDataStore.teachers[existingIdx],
+        ...newTeacher,
+        id: examDataStore.teachers[existingIdx].id || newTeacher.id,
+      };
+      newTeacher.id = examDataStore.teachers[existingIdx].id;
     } else {
       examDataStore.teachers.push(newTeacher);
     }
@@ -629,7 +649,7 @@ app.post('/api/teacher/register', (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Akun guru baru berhasil ditambahkan!',
+      message: 'Akun guru baru berhasil didaftarkan dan disimpan ke sistem CBT!',
       teacher: newTeacher,
       teachers: examDataStore.teachers,
     });

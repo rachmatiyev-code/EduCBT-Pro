@@ -113,6 +113,24 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
     setIsStudentModalOpen(true);
   };
 
+  const [isManualSavingStudents, setIsManualSavingStudents] = useState(false);
+  const handleManualSaveStudents = async () => {
+    setIsManualSavingStudents(true);
+    try {
+      await api.saveMasterData({ students: localStudents });
+      try {
+        localStorage.setItem('educbt_master_students', JSON.stringify(localStudents));
+      } catch {}
+      onRefreshData();
+      setStudentFeedbackMsg('Semua data siswa berhasil disimpan permanen ke server CBT!');
+      setTimeout(() => setStudentFeedbackMsg(''), 4000);
+    } catch (err: any) {
+      alert('Gagal menyimpan data siswa: ' + (err.message || 'Terjadi kesalahan'));
+    } finally {
+      setIsManualSavingStudents(false);
+    }
+  };
+
   const handleOpenEditStudent = (st: Student) => {
     setEditingStudent(st);
     setStudentNisn(st.nisn || '');
@@ -140,6 +158,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       let updated: Student[];
       const trimmedNisn = studentNisn.trim();
       const trimmedName = studentName.trim();
+      const targetClass = studentClassId || localClasses[0]?.id || 'CLS-10A';
 
       if (editingStudent) {
         let matched = false;
@@ -155,7 +174,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
               id: s.id || editingStudent.id || `STD-${Date.now()}`,
               nisn: trimmedNisn,
               name: trimmedName,
-              classId: studentClassId,
+              classId: targetClass,
               gender: studentGender,
             };
           }
@@ -168,7 +187,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             id: editingStudent.id || `STD-${Date.now()}`,
             nisn: trimmedNisn,
             name: trimmedName,
-            classId: studentClassId,
+            classId: targetClass,
             gender: studentGender,
           };
           updated = [editedItem, ...localStudents];
@@ -180,24 +199,27 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
           id: `STD-${Date.now()}`,
           nisn: trimmedNisn,
           name: trimmedName,
-          classId: studentClassId,
+          classId: targetClass,
           gender: studentGender,
         };
         updated = [newStudent, ...localStudents];
         setStudentFeedbackMsg(`Siswa baru "${trimmedName}" berhasil ditambahkan!`);
       }
 
+      // Optimistic update
       setLocalStudents(updated);
+      setIsStudentModalOpen(false);
+      setEditingStudent(null);
+      setStudentNisn('');
+      setStudentName('');
+
       try {
         localStorage.setItem('educbt_master_students', JSON.stringify(updated));
       } catch {}
 
       await api.saveMasterData({ students: updated });
       onRefreshData();
-      setIsStudentModalOpen(false);
-      setEditingStudent(null);
-      setStudentNisn('');
-      setStudentName('');
+      setTimeout(() => setStudentFeedbackMsg(''), 4000);
     } catch (err: any) {
       alert('Gagal menyimpan data siswa: ' + (err.message || 'Terjadi kesalahan'));
     } finally {
@@ -665,7 +687,7 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                 <option value="all">Semua Kelas ({localStudents.length} Siswa)</option>
                 {localClasses.map((cls) => {
                   const countInClass = localStudents.filter(
-                    (s) => s.classId === cls.id || s.classId.toLowerCase() === cls.name.toLowerCase()
+                    (s) => s.classId === cls.id || (s.classId || '').toLowerCase() === (cls.name || '').toLowerCase()
                   ).length;
                   return (
                     <option key={cls.id} value={cls.id}>
@@ -676,10 +698,20 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleManualSaveStudents}
+                disabled={isManualSavingStudents}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all flex-1 sm:flex-none"
+                title="Simpan seluruh data siswa ke server CBT"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isManualSavingStudents ? 'Menyimpan...' : 'Simpan Data Siswa'}</span>
+              </button>
+
               <button
                 onClick={() => setIsBulkModalOpen(true)}
-                className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all flex-1 sm:flex-none"
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all flex-1 sm:flex-none"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>Tambah Siswa Bulk (Excel/CSV)</span>
@@ -822,13 +854,22 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                         </td>
                         <td className="py-3 px-3 font-bold text-slate-500">{idx + 1}</td>
                         <td className="py-3 px-4 font-mono font-bold text-slate-700">{s.nisn}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-800 flex items-center gap-2">
-                          <span>{s.name}</span>
-                          {isNew && (
-                            <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[9px] uppercase tracking-wider">
-                              Baru
-                            </span>
-                          )}
+                        <td className="py-3 px-4 font-semibold text-slate-800">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditStudent(s)}
+                              className="text-left font-bold text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                              title={`Klik untuk edit data siswa: ${s.name}`}
+                            >
+                              {s.name}
+                            </button>
+                            {isNew && (
+                              <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[9px] uppercase tracking-wider">
+                                Baru
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-slate-600 font-medium">
                           {classInfo?.name || s.classId || '-'}
@@ -845,22 +886,24 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleOpenEditStudent(s)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                               title={`Edit data siswa: ${s.name}`}
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
+                              <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Edit</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteStudent(s.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                               title={`Hapus data siswa: ${s.name}`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Hapus</span>
                             </button>
                           </div>
                         </td>
