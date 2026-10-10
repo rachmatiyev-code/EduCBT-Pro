@@ -11,6 +11,7 @@ import {
   Trash2,
   ListChecks,
   KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { QuestionItem, QuestionType } from '../types/cbt';
 import { api } from '../services/api';
@@ -95,15 +96,24 @@ export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
     }
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+
   const handleRemoveQuestion = (idx: number) => {
     const updated = generatedQuestions.filter((_, i) => i !== idx).map((q, i) => ({ ...q, number: i + 1 }));
     setGeneratedQuestions(updated);
   };
 
-  const handleConfirmImport = () => {
-    if (generatedQuestions.length === 0) return;
-    onImportQuestions(generatedQuestions, { subject, topic });
-    onClose();
+  const handleConfirmImport = async () => {
+    if (generatedQuestions.length === 0 || isImporting) return;
+    setIsImporting(true);
+    try {
+      await Promise.resolve(onImportQuestions(generatedQuestions, { subject, topic }));
+      onClose();
+    } catch (err: any) {
+      setErrorMsg('Gagal mengimpor butir soal: ' + (err.message || 'Terjadi kesalahan sistem'));
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -426,11 +436,20 @@ export const AIPromptGeneratorModal: React.FC<AIPromptGeneratorModalProps> = ({
           </button>
           <button
             onClick={handleConfirmImport}
-            disabled={generatedQuestions.length === 0}
+            disabled={generatedQuestions.length === 0 || isImporting}
             className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl font-semibold shadow-sm text-sm flex items-center gap-2 transition-all cursor-pointer"
           >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Impor {generatedQuestions.length} Soal ke Bank Soal</span>
+            {isImporting ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Mengimpor ke Bank Soal...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Impor {generatedQuestions.length} Soal ke Bank Soal</span>
+              </>
+            )}
           </button>
         </div>
       </div>

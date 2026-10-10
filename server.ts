@@ -187,6 +187,20 @@ function saveDataStore() {
   }
 }
 
+// Background auto-sync to Google Apps Script / Google Drive
+function syncToGasWebhook(action: string, payload: any) {
+  if (!examDataStore.gasWebhookUrl) return;
+  try {
+    fetch(examDataStore.gasWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload }),
+    }).catch((e) => console.warn('[GAS] Auto-sync background dispatch:', e.message));
+  } catch (err: any) {
+    console.warn('[GAS] Auto-sync dispatch error:', err.message);
+  }
+}
+
 // Initial load
 loadDataStore();
 
@@ -194,106 +208,110 @@ loadDataStore();
 const initialBankId = 'BANK-001';
 const initialSessionId = 'SES-001';
 
-examDataStore.questionBanks.push({
-  id: initialBankId,
-  title: 'Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi',
-  subjectId: 'SUB-01',
-  gradeLevel: '12',
-  teacherId: 'T01',
-  totalQuestions: 5,
-  durationMinutes: 45,
-  passingScore: 75,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  questions: [
-    {
-      id: 'q-1',
-      number: 1,
-      type: 'multiple_choice',
-      question: 'Bacalah kutipan teks berikut:\n\n"Teknologi kecerdasan buatan semakin terintegrasi dalam lanskap pendidikan modern. Guru tidak lagi berperan sebagai satu-satunya sumber informasi, melainkan bertransformasi menjadi fasilitator dan kurator pengetahuan."\n\nIde pokok paragraf di atas adalah...',
-      options: [
-        'A. Peran baru guru sebagai fasilitator akibat integrasi kecerdasan buatan',
-        'B. Guru digantikan sepenuhnya oleh sistem kecerdasan buatan',
-        'C. Kurikulum pendidikan modern yang menolak digitalisasi',
-        'D. Siswa tidak lagi memerlukan bimbingan guru di sekolah',
-        'E. Kecerdasan buatan merupakan satu-satunya kurator ilmu pengetahuan'
-      ],
-      correctAnswer: 'A',
-      explanation: 'Paragraf menekankan integrasi kecerdasan buatan yang mengubah peran guru dari sumber informasi tunggal menjadi fasilitator.',
-      points: 20,
-    },
-    {
-      id: 'q-2',
-      number: 2,
-      type: 'multiple_select',
-      question: 'Manakah di antara pernyataan berikut yang termasuk ke dalam ciri-ciri teks artikel ilmiah populer? (Pilih semua jawaban yang benar)',
-      options: [
-        'A. Menggunakan bahasa yang komunikatif dan mudah dipahami khalayak umum',
-        'B. Berlandaskan pada data atau fakta yang valid dan dapat dipertanggungjawabkan',
-        'C. Wajib menggunakan istilah teknis tanpa penjelasan konteks',
-        'D. Disusun secara sistematis dengan argumen yang logis',
-        'E. Bersifat fiktif dan mengutamakan imajinasi bebas'
-      ],
-      correctAnswer: ['A', 'B', 'D'],
-      explanation: 'Artikel ilmiah populer memakai bahasa komunikatif, berbasis fakta valid, dan berargumen logis.',
-      points: 20,
-    },
-    {
-      id: 'q-3',
-      number: 3,
-      type: 'true_false',
-      question: 'Tentukan kebenaran dari pernyataan berikut:\n\n"Kalimat efektif harus memenuhi syarat kepaduan (koherensi), keparalelan bentuk, dan kehematan kata tanpa menimbulkan ambiguitas makna."',
-      options: ['Benar', 'Salah'],
-      correctAnswer: 'Benar',
-      explanation: 'Pernyataan tersebut tepat merangkum kriteria kaidah kalimat efektif dalam bahasa Indonesia baku.',
-      points: 20,
-    },
-    {
-      id: 'q-4',
-      number: 4,
-      type: 'matching',
-      question: 'Jodohkan istilah kebahasaan berikut dengan definisinya yang tepat:',
-      correctAnswer: {
-        'Konjungsi Temporal': 'Kata hubung penanda urutan waktu kejadian',
-        'Kalimat Imperatif': 'Kalimat yang mengandung perintah atau ajakan',
-        'Kata Denotatif': 'Makna kata sebenarnya sesuai kamus'
+if (!examDataStore.questionBanks.some((b) => b.id === initialBankId)) {
+  examDataStore.questionBanks.push({
+    id: initialBankId,
+    title: 'Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi',
+    subjectId: 'SUB-01',
+    gradeLevel: '12',
+    teacherId: 'T01',
+    totalQuestions: 5,
+    durationMinutes: 45,
+    passingScore: 75,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    questions: [
+      {
+        id: 'q-1',
+        number: 1,
+        type: 'multiple_choice',
+        question: 'Bacalah kutipan teks berikut:\n\n"Teknologi kecerdasan buatan semakin terintegrasi dalam lanskap pendidikan modern. Guru tidak lagi berperan sebagai satu-satunya sumber informasi, melainkan bertransformasi menjadi fasilitator dan kurator pengetahuan."\n\nIde pokok paragraf di atas adalah...',
+        options: [
+          'A. Peran baru guru sebagai fasilitator akibat integrasi kecerdasan buatan',
+          'B. Guru digantikan sepenuhnya oleh sistem kecerdasan buatan',
+          'C. Kurikulum pendidikan modern yang menolak digitalisasi',
+          'D. Siswa tidak lagi memerlukan bimbingan guru di sekolah',
+          'E. Kecerdasan buatan merupakan satu-satunya kurator ilmu pengetahuan'
+        ],
+        correctAnswer: 'A',
+        explanation: 'Paragraf menekankan integrasi kecerdasan buatan yang mengubah peran guru dari sumber informasi tunggal menjadi fasilitator.',
+        points: 20,
       },
-      matchingPairs: [
-        { left: 'Konjungsi Temporal', right: 'Kata hubung penanda urutan waktu kejadian' },
-        { left: 'Kalimat Imperatif', right: 'Kalimat yang mengandung perintah atau ajakan' },
-        { left: 'Kata Denotatif', right: 'Makna kata sebenarnya sesuai kamus' },
-      ],
-      explanation: 'Pasangan istilah dan makna telah disesuaikan dengan tata bahasa baku.',
-      points: 20,
-    },
-    {
-      id: 'q-5',
-      number: 5,
-      type: 'short_answer',
-      question: 'Sebutkan jenis teks yang bertujuan untuk menjelaskan proses terjadinya suatu fenomena alam atau sosial secara kausalitas/sebab-akibat!',
-      correctAnswer: 'Eksplanasi',
-      explanation: 'Teks yang memaparkan hubungan sebab-akibat suatu peristiwa disebut teks eksplanasi.',
-      points: 20,
-    }
-  ]
-});
+      {
+        id: 'q-2',
+        number: 2,
+        type: 'multiple_select',
+        question: 'Manakah di antara pernyataan berikut yang termasuk ke dalam ciri-ciri teks artikel ilmiah populer? (Pilih semua jawaban yang benar)',
+        options: [
+          'A. Menggunakan bahasa yang komunikatif dan mudah dipahami khalayak umum',
+          'B. Berlandaskan pada data atau fakta yang valid dan dapat dipertanggungjawabkan',
+          'C. Wajib menggunakan istilah teknis tanpa penjelasan konteks',
+          'D. Disusun secara sistematis dengan argumen yang logis',
+          'E. Bersifat fiktif dan mengutamakan imajinasi bebas'
+        ],
+        correctAnswer: ['A', 'B', 'D'],
+        explanation: 'Artikel ilmiah populer memakai bahasa komunikatif, berbasis fakta valid, dan berargumen logis.',
+        points: 20,
+      },
+      {
+        id: 'q-3',
+        number: 3,
+        type: 'true_false',
+        question: 'Tentukan kebenaran dari pernyataan berikut:\n\n"Kalimat efektif harus memenuhi syarat kepaduan (koherensi), keparalelan bentuk, dan kehematan kata tanpa menimbulkan ambiguitas makna."',
+        options: ['Benar', 'Salah'],
+        correctAnswer: 'Benar',
+        explanation: 'Pernyataan tersebut tepat merangkum kriteria kaidah kalimat efektif dalam bahasa Indonesia baku.',
+        points: 20,
+      },
+      {
+        id: 'q-4',
+        number: 4,
+        type: 'matching',
+        question: 'Jodohkan istilah kebahasaan berikut dengan definisinya yang tepat:',
+        correctAnswer: {
+          'Konjungsi Temporal': 'Kata hubung penanda urutan waktu kejadian',
+          'Kalimat Imperatif': 'Kalimat yang mengandung perintah atau ajakan',
+          'Kata Denotatif': 'Makna kata sebenarnya sesuai kamus'
+        },
+        matchingPairs: [
+          { left: 'Konjungsi Temporal', right: 'Kata hubung penanda urutan waktu kejadian' },
+          { left: 'Kalimat Imperatif', right: 'Kalimat yang mengandung perintah atau ajakan' },
+          { left: 'Kata Denotatif', right: 'Makna kata sebenarnya sesuai kamus' },
+        ],
+        explanation: 'Pasangan istilah dan makna telah disesuaikan dengan tata bahasa baku.',
+        points: 20,
+      },
+      {
+        id: 'q-5',
+        number: 5,
+        type: 'short_answer',
+        question: 'Sebutkan jenis teks yang bertujuan untuk menjelaskan proses terjadinya suatu fenomena alam atau sosial secara kausalitas/sebab-akibat!',
+        correctAnswer: 'Eksplanasi',
+        explanation: 'Teks yang memaparkan hubungan sebab-akibat suatu peristiwa disebut teks eksplanasi.',
+        points: 20,
+      }
+    ]
+  });
+}
 
-examDataStore.examSessions.push({
-  id: initialSessionId,
-  bankId: initialBankId,
-  sessionCode: 'CBT-2026',
-  title: 'Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi',
-  targetClassIds: ['CLS-12A'],
-  startTime: new Date(Date.now() - 3600000).toISOString(),
-  endTime: new Date(Date.now() + 86400000).toISOString(),
-  durationMinutes: 45,
-  shuffleQuestions: false,
-  shuffleOptions: false,
-  showResultInstant: true,
-  antiCheatEnabled: true,
-  maxTabSwitches: 3,
-  status: 'active',
-});
+if (!examDataStore.examSessions.some((s) => s.id === initialSessionId)) {
+  examDataStore.examSessions.push({
+    id: initialSessionId,
+    bankId: initialBankId,
+    sessionCode: 'CBT-2026',
+    title: 'Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi',
+    targetClassIds: ['CLS-12A'],
+    startTime: new Date(Date.now() - 3600000).toISOString(),
+    endTime: new Date(Date.now() + 86400000).toISOString(),
+    durationMinutes: 45,
+    shuffleQuestions: false,
+    shuffleOptions: false,
+    showResultInstant: true,
+    antiCheatEnabled: true,
+    maxTabSwitches: 3,
+    status: 'active',
+  });
+}
 
 // AI Question Generation API
 app.post('/api/gemini/generate-questions', async (req, res) => {
@@ -550,6 +568,7 @@ app.get('/api/data/all', (req, res) => {
 app.post('/api/data/school-profile', (req, res) => {
   examDataStore.schoolProfile = { ...examDataStore.schoolProfile, ...req.body };
   saveDataStore();
+  syncToGasWebhook('backupAllData', { payload: examDataStore });
   return res.json({ success: true, schoolProfile: examDataStore.schoolProfile });
 });
 
@@ -561,6 +580,7 @@ app.post('/api/data/master', (req, res) => {
     if (classes && Array.isArray(classes)) examDataStore.classes = classes;
     if (subjects && Array.isArray(subjects)) examDataStore.subjects = subjects;
     saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
     return res.json({
       success: true,
       message: 'Data master berhasil diperbarui dan tersimpan permanen.',
@@ -670,12 +690,14 @@ app.post('/api/data/question-banks', (req, res) => {
     examDataStore.questionBanks.push(bank);
   }
   saveDataStore();
+  syncToGasWebhook('backupAllData', { payload: examDataStore });
   return res.json({ success: true, bank });
 });
 
 app.delete('/api/data/question-banks/:id', (req, res) => {
   examDataStore.questionBanks = examDataStore.questionBanks.filter((b) => b.id !== req.params.id);
   saveDataStore();
+  syncToGasWebhook('backupAllData', { payload: examDataStore });
   return res.json({ success: true, message: 'Bank soal berhasil dihapus.' });
 });
 
@@ -691,12 +713,14 @@ app.post('/api/data/exam-sessions', (req, res) => {
     examDataStore.examSessions.push(session);
   }
   saveDataStore();
+  syncToGasWebhook('backupAllData', { payload: examDataStore });
   return res.json({ success: true, session });
 });
 
 app.delete('/api/data/exam-sessions/:id', (req, res) => {
   examDataStore.examSessions = examDataStore.examSessions.filter((s) => s.id !== req.params.id);
   saveDataStore();
+  syncToGasWebhook('backupAllData', { payload: examDataStore });
   return res.json({ success: true, message: 'Sesi ujian berhasil dihapus.' });
 });
 
@@ -817,6 +841,8 @@ app.post('/api/gas/set-webhook', (req, res) => {
       else cleanUrl += '/exec';
     }
     examDataStore.gasWebhookUrl = cleanUrl;
+    saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
     return res.json({ success: true, gasWebhookUrl: examDataStore.gasWebhookUrl });
   } catch (err: any) {
     return res.json({ success: false, error: err.message || 'Gagal menyimpan URL webhook' });

@@ -44,21 +44,50 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
   const [newlyImportedIds, setNewlyImportedIds] = useState<string[]>([]);
 
-  // Local optimistic data states to ensure immediate UI feedback
-  const [localStudents, setLocalStudents] = useState<Student[]>(students);
-  const [localClasses, setLocalClasses] = useState<ClassGroup[]>(classes);
-  const [localSubjects, setLocalSubjects] = useState<Subject[]>(subjects);
+  // Local optimistic data states with localStorage backup to prevent state wipe on tab change
+  const [localStudents, setLocalStudents] = useState<Student[]>(() => {
+    if (students && students.length > 0) return students;
+    try {
+      const cached = JSON.parse(localStorage.getItem('educbt_master_students') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+    } catch {}
+    return students;
+  });
+
+  const [localClasses, setLocalClasses] = useState<ClassGroup[]>(() => {
+    if (classes && classes.length > 0) return classes;
+    try {
+      const cached = JSON.parse(localStorage.getItem('educbt_master_classes') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+    } catch {}
+    return classes;
+  });
+
+  const [localSubjects, setLocalSubjects] = useState<Subject[]>(() => {
+    if (subjects && subjects.length > 0) return subjects;
+    try {
+      const cached = JSON.parse(localStorage.getItem('educbt_master_subjects') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+    } catch {}
+    return subjects;
+  });
 
   useEffect(() => {
-    setLocalStudents(students);
+    if (students && students.length > 0) {
+      setLocalStudents(students);
+    }
   }, [students]);
 
   useEffect(() => {
-    setLocalClasses(classes);
+    if (classes && classes.length > 0) {
+      setLocalClasses(classes);
+    }
   }, [classes]);
 
   useEffect(() => {
-    setLocalSubjects(subjects);
+    if (subjects && subjects.length > 0) {
+      setLocalSubjects(subjects);
+    }
   }, [subjects]);
 
   // Selected students state (Fitur Pilih)
@@ -91,17 +120,21 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
   const [bulkParseError, setBulkParseError] = useState('');
   const [copiedTemplate, setCopiedTemplate] = useState(false);
 
-  // Class Form State
+  // Class State & Handlers
   const [isAddingClass, setIsAddingClass] = useState(false);
   const [className, setClassName] = useState('');
   const [classGrade, setClassGrade] = useState('1'); // Default to SD
+  const [isManualSavingClasses, setIsManualSavingClasses] = useState(false);
+  const [classFeedbackMsg, setClassFeedbackMsg] = useState('');
 
-  // Subject Form State
+  // Subject State & Handlers
   const [isAddingSubject, setIsAddingSubject] = useState(false);
   const [subjectCode, setSubjectCode] = useState('');
   const [subjectName, setSubjectName] = useState('');
   const [subjectKkm, setSubjectKkm] = useState(75);
   const [subjectTeacher, setSubjectTeacher] = useState(teachers[0]?.name || '');
+  const [isManualSavingSubjects, setIsManualSavingSubjects] = useState(false);
+  const [subjectFeedbackMsg, setSubjectFeedbackMsg] = useState('');
 
   // Handlers for Student Single Add / Edit
   const handleOpenAddStudent = () => {
@@ -542,18 +575,78 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
     };
     const updated = [...localClasses, newClass];
     setLocalClasses(updated);
+    try {
+      localStorage.setItem('educbt_master_classes', JSON.stringify(updated));
+    } catch {}
     await api.saveMasterData({ classes: updated });
     onRefreshData();
     setIsAddingClass(false);
     setClassName('');
+    setClassFeedbackMsg(`Kelas "${newClass.name}" berhasil ditambahkan dan disimpan!`);
+    setTimeout(() => setClassFeedbackMsg(''), 4000);
+  };
+
+  const handleManualSaveClasses = async () => {
+    setIsManualSavingClasses(true);
+    try {
+      await api.saveMasterData({ classes: localClasses });
+      try {
+        localStorage.setItem('educbt_master_classes', JSON.stringify(localClasses));
+      } catch {}
+      onRefreshData();
+      setClassFeedbackMsg('Semua data kelas berhasil disimpan permanen ke database CBT!');
+      setTimeout(() => setClassFeedbackMsg(''), 4000);
+    } catch (err: any) {
+      alert('Gagal menyimpan data kelas: ' + (err.message || 'Terjadi kesalahan'));
+    } finally {
+      setIsManualSavingClasses(false);
+    }
+  };
+
+  const handleLoadStandardClasses = async () => {
+    const standard: ClassGroup[] = [
+      { id: 'CLS-SD1A', name: 'Kelas 1-A (SD)', gradeLevel: '1' },
+      { id: 'CLS-SD2A', name: 'Kelas 2-A (SD)', gradeLevel: '2' },
+      { id: 'CLS-SD3A', name: 'Kelas 3-A (SD)', gradeLevel: '3' },
+      { id: 'CLS-SD4A', name: 'Kelas 4-A (SD)', gradeLevel: '4' },
+      { id: 'CLS-SD5A', name: 'Kelas 5-A (SD)', gradeLevel: '5' },
+      { id: 'CLS-SD6A', name: 'Kelas 6-A (SD)', gradeLevel: '6' },
+      { id: 'CLS-SMP7A', name: 'Kelas 7-A (SMP)', gradeLevel: '7' },
+      { id: 'CLS-SMP8A', name: 'Kelas 8-A (SMP)', gradeLevel: '8' },
+      { id: 'CLS-SMP9A', name: 'Kelas 9-A (SMP)', gradeLevel: '9' },
+      { id: 'CLS-SMA10A', name: 'Kelas 10 MIPA (SMA)', gradeLevel: '10' },
+      { id: 'CLS-SMA11A', name: 'Kelas 11 MIPA (SMA)', gradeLevel: '11' },
+      { id: 'CLS-SMA12A', name: 'Kelas 12 MIPA (SMA)', gradeLevel: '12' },
+    ];
+    const map = new Map<string, ClassGroup>();
+    localClasses.forEach((c) => map.set(c.id, c));
+    standard.forEach((c) => {
+      if (!Array.from(map.values()).some((x) => x.name.toLowerCase() === c.name.toLowerCase())) {
+        map.set(c.id, c);
+      }
+    });
+    const updated = Array.from(map.values());
+    setLocalClasses(updated);
+    try {
+      localStorage.setItem('educbt_master_classes', JSON.stringify(updated));
+    } catch {}
+    await api.saveMasterData({ classes: updated });
+    onRefreshData();
+    setClassFeedbackMsg('Daftar rombel standar (SD, SMP, SMA) berhasil dimuat dan disimpan!');
+    setTimeout(() => setClassFeedbackMsg(''), 4000);
   };
 
   const handleDeleteClass = async (id: string) => {
     if (confirm('Hapus rombel/kelas ini? Siswa yang terhubung mungkin perlu dipindahkan.')) {
       const updated = localClasses.filter((c) => c.id !== id);
       setLocalClasses(updated);
+      try {
+        localStorage.setItem('educbt_master_classes', JSON.stringify(updated));
+      } catch {}
       await api.saveMasterData({ classes: updated });
       onRefreshData();
+      setClassFeedbackMsg('Kelas berhasil dihapus.');
+      setTimeout(() => setClassFeedbackMsg(''), 3000);
     }
   };
 
@@ -568,23 +661,77 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       code: subjectCode.trim().toUpperCase(),
       name: subjectName.trim(),
       kkm: Number(subjectKkm) || 75,
-      teacherName: subjectTeacher,
+      teacherName: subjectTeacher || teachers[0]?.name || 'Guru Pengampu',
     };
     const updated = [...localSubjects, newSubject];
     setLocalSubjects(updated);
+    try {
+      localStorage.setItem('educbt_master_subjects', JSON.stringify(updated));
+    } catch {}
     await api.saveMasterData({ subjects: updated });
     onRefreshData();
     setIsAddingSubject(false);
     setSubjectCode('');
     setSubjectName('');
+    setSubjectFeedbackMsg(`Mata pelajaran "${newSubject.name}" berhasil ditambahkan dan disimpan!`);
+    setTimeout(() => setSubjectFeedbackMsg(''), 4000);
+  };
+
+  const handleManualSaveSubjects = async () => {
+    setIsManualSavingSubjects(true);
+    try {
+      await api.saveMasterData({ subjects: localSubjects });
+      try {
+        localStorage.setItem('educbt_master_subjects', JSON.stringify(localSubjects));
+      } catch {}
+      onRefreshData();
+      setSubjectFeedbackMsg('Semua data mata pelajaran berhasil disimpan permanen ke database CBT!');
+      setTimeout(() => setSubjectFeedbackMsg(''), 4000);
+    } catch (err: any) {
+      alert('Gagal menyimpan data mata pelajaran: ' + (err.message || 'Terjadi kesalahan'));
+    } finally {
+      setIsManualSavingSubjects(false);
+    }
+  };
+
+  const handleLoadStandardSubjects = async () => {
+    const standard: Subject[] = [
+      { id: 'SUB-BIN', code: 'BIN', name: 'Bahasa Indonesia', kkm: 75, teacherName: teachers[0]?.name || 'Guru B. Indonesia' },
+      { id: 'SUB-MAT', code: 'MAT', name: 'Matematika', kkm: 70, teacherName: teachers[0]?.name || 'Guru Matematika' },
+      { id: 'SUB-IPAS', code: 'IPAS', name: 'Ilmu Pengetahuan Alam & Sosial (IPAS)', kkm: 75, teacherName: teachers[0]?.name || 'Guru IPAS' },
+      { id: 'SUB-BIG', code: 'BIG', name: 'Bahasa Inggris', kkm: 75, teacherName: teachers[0]?.name || 'Guru B. Inggris' },
+      { id: 'SUB-PKN', code: 'PPKN', name: 'Pendidikan Pancasila & Kewarganegaraan', kkm: 78, teacherName: teachers[0]?.name || 'Guru PPKN' },
+      { id: 'SUB-PAI', code: 'PAI', name: 'Pendidikan Agama & Budi Pekerti', kkm: 80, teacherName: teachers[0]?.name || 'Guru Agama' },
+    ];
+    const map = new Map<string, Subject>();
+    localSubjects.forEach((s) => map.set(s.id, s));
+    standard.forEach((s) => {
+      if (!Array.from(map.values()).some((x) => x.name.toLowerCase() === s.name.toLowerCase() || x.code === s.code)) {
+        map.set(s.id, s);
+      }
+    });
+    const updated = Array.from(map.values());
+    setLocalSubjects(updated);
+    try {
+      localStorage.setItem('educbt_master_subjects', JSON.stringify(updated));
+    } catch {}
+    await api.saveMasterData({ subjects: updated });
+    onRefreshData();
+    setSubjectFeedbackMsg('Daftar mata pelajaran standar Kurikulum Merdeka berhasil dimuat dan disimpan!');
+    setTimeout(() => setSubjectFeedbackMsg(''), 4000);
   };
 
   const handleDeleteSubject = async (id: string) => {
     if (confirm('Hapus mata pelajaran ini?')) {
       const updated = localSubjects.filter((s) => s.id !== id);
       setLocalSubjects(updated);
+      try {
+        localStorage.setItem('educbt_master_subjects', JSON.stringify(updated));
+      } catch {}
       await api.saveMasterData({ subjects: updated });
       onRefreshData();
+      setSubjectFeedbackMsg('Mata pelajaran berhasil dihapus.');
+      setTimeout(() => setSubjectFeedbackMsg(''), 3000);
     }
   };
 
@@ -920,23 +1067,55 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
       {/* TAB 2: DATA KELAS DENGAN DUKUNGAN SEKOLAH DASAR (KELAS 1 - 6 SD) */}
       {activeTab === 'classes' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-800 text-sm">
-                Daftar Rombongan Belajar (Kelas SD, SMP, SMA/SMK)
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span>Daftar Rombongan Belajar (Kelas SD, SMP, SMA/SMK)</span>
+                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-md">
+                  {localClasses.length} Rombel
+                </span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Mendukung fase kurikulum Sekolah Dasar (Kelas 1–6), SMP (Kelas 7–9), dan SMA (Kelas 10–12)
               </p>
             </div>
-            <button
-              onClick={() => setIsAddingClass(true)}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Kelas</span>
-            </button>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleManualSaveClasses}
+                disabled={isManualSavingClasses}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+                title="Simpan seluruh data kelas ke server CBT"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isManualSavingClasses ? 'Menyimpan...' : 'Simpan Data Kelas'}</span>
+              </button>
+
+              <button
+                onClick={handleLoadStandardClasses}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all"
+                title="Muat data rombel kelas standar SD, SMP, dan SMA"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Muat Rombel Standar</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddingClass(true)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Kelas</span>
+              </button>
+            </div>
           </div>
+
+          {classFeedbackMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{classFeedbackMsg}</span>
+            </div>
+          )}
 
           {isAddingClass && (
             <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200 flex flex-wrap items-end gap-3 animate-in fade-in duration-150">
@@ -998,63 +1177,128 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
-            {classes.map((c) => {
-              const studentCount = students.filter((s) => s.classId === c.id).length;
-              const isSD = Number(c.gradeLevel) >= 1 && Number(c.gradeLevel) <= 6;
-              const isSMP = Number(c.gradeLevel) >= 7 && Number(c.gradeLevel) <= 9;
-
-              return (
-                <div
-                  key={c.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition-all flex items-center justify-between shadow-xs"
+          {localClasses.length === 0 ? (
+            <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl p-6">
+              <GraduationCap className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h4 className="font-bold text-slate-700 text-sm">Belum Ada Rombel Kelas Terdaftar</h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                Tambahkan kelas baru secara manual atau muat paket rombel standar kurikulum nasional (SD, SMP, dan SMA).
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={handleLoadStandardClasses}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs"
                 >
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase ${
-                          isSD
-                            ? 'bg-amber-100 text-amber-800'
-                            : isSMP
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'bg-indigo-100 text-indigo-800'
-                        }`}
-                      >
-                        {isSD ? 'Jenjang SD' : isSMP ? 'Jenjang SMP' : 'Jenjang SMA'}
-                      </span>
-                    </div>
-                    <h4 className="font-bold text-slate-800 text-sm">{c.name}</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Tingkat {c.gradeLevel} • {studentCount} Siswa
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteClass(c.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Hapus kelas"
+                  Muat Rombel Standar (SD, SMP, SMA)
+                </button>
+                <button
+                  onClick={() => setIsAddingClass(true)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs"
+                >
+                  + Tambah Kelas Manual
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+              {localClasses.map((c) => {
+                const studentCount = localStudents.filter(
+                  (s) => s.classId === c.id || (s.classId || '').toLowerCase() === (c.name || '').toLowerCase()
+                ).length;
+                const isSD = Number(c.gradeLevel) >= 1 && Number(c.gradeLevel) <= 6;
+                const isSMP = Number(c.gradeLevel) >= 7 && Number(c.gradeLevel) <= 9;
+
+                return (
+                  <div
+                    key={c.id}
+                    className="p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition-all flex items-center justify-between shadow-xs"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase ${
+                            isSD
+                              ? 'bg-amber-100 text-amber-800'
+                              : isSMP
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-indigo-100 text-indigo-800'
+                          }`}
+                        >
+                          {isSD ? 'Jenjang SD' : isSMP ? 'Jenjang SMP' : 'Jenjang SMA'}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-sm">{c.name}</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Tingkat {c.gradeLevel} • {studentCount} Siswa
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteClass(c.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                      title="Hapus kelas"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* TAB 3: DATA MATA PELAJARAN */}
       {activeTab === 'subjects' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-800 text-sm">Daftar Mata Pelajaran & KKM</h3>
-            <button
-              onClick={() => setIsAddingSubject(true)}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Mapel</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span>Daftar Mata Pelajaran & KKM</span>
+                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-md">
+                  {localSubjects.length} Mapel
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pengaturan kode kurikulum, nama mata pelajaran, standar KKM, dan guru pengampu
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleManualSaveSubjects}
+                disabled={isManualSavingSubjects}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+                title="Simpan seluruh data mata pelajaran ke server CBT"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isManualSavingSubjects ? 'Menyimpan...' : 'Simpan Data Mapel'}</span>
+              </button>
+
+              <button
+                onClick={handleLoadStandardSubjects}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all"
+                title="Muat daftar mata pelajaran standar Kurikulum Merdeka"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Muat Mapel Standar</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddingSubject(true)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Mapel</span>
+              </button>
+            </div>
           </div>
+
+          {subjectFeedbackMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{subjectFeedbackMsg}</span>
+            </div>
+          )}
 
           {isAddingSubject && (
             <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200 grid grid-cols-1 sm:grid-cols-4 gap-3 animate-in fade-in duration-150">
@@ -1115,35 +1359,59 @@ export const MasterDataManager: React.FC<MasterDataManagerProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-            {subjects.map((s) => (
-              <div
-                key={s.id}
-                className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 transition-all flex flex-col justify-between space-y-3"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-mono font-bold text-xs rounded-md">
-                      {s.code}
-                    </span>
-                    <span className="text-xs font-bold text-emerald-700">KKM: {s.kkm}</span>
-                  </div>
-                  <h4 className="font-bold text-slate-800 text-base">{s.name}</h4>
-                  <p className="text-xs text-slate-500 mt-1">Guru: {s.teacherName}</p>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
-                  <button
-                    onClick={() => handleDeleteSubject(s.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Hapus mapel"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+          {localSubjects.length === 0 ? (
+            <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl p-6">
+              <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h4 className="font-bold text-slate-700 text-sm">Belum Ada Mata Pelajaran Terdaftar</h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                Tambahkan mata pelajaran baru atau muat paket standar Kurikulum Merdeka (Bahasa Indonesia, Matematika, IPAS, Bahasa Inggris, dll).
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={handleLoadStandardSubjects}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                >
+                  Muat Mapel Standar Kurikulum Merdeka
+                </button>
+                <button
+                  onClick={() => setIsAddingSubject(true)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs"
+                >
+                  + Tambah Mapel Manual
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+              {localSubjects.map((s) => (
+                <div
+                  key={s.id}
+                  className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 transition-all flex flex-col justify-between space-y-3 shadow-xs"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-mono font-bold text-xs rounded-md">
+                        {s.code}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-700">KKM: {s.kkm}</span>
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-base">{s.name}</h4>
+                    <p className="text-xs text-slate-500 mt-1">Guru: {s.teacherName}</p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
+                    <button
+                      onClick={() => handleDeleteSubject(s.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                      title="Hapus mapel"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -316,42 +316,49 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     aiQuestions: QuestionItem[],
     titleInfo: { subject: string; topic: string }
   ) => {
-    if (!selectedBank) {
-      // Create new bank from AI
-      const newBank: QuestionBank = {
-        id: `BANK-${Date.now()}`,
-        title: `Ujian ${titleInfo.subject} - ${titleInfo.topic}`,
-        subjectId: subjects.find((s) => s.name.toLowerCase().includes(titleInfo.subject.toLowerCase()))?.id || 'SUB-01',
-        gradeLevel: '10',
-        teacherId: 'T01',
-        totalQuestions: aiQuestions.length,
-        durationMinutes: Math.min(aiQuestions.length * 3, 90),
-        passingScore: 75,
-        questions: aiQuestions,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await api.saveQuestionBank(newBank);
-      setSelectedBank(newBank);
-      setIsEditingBank(true);
-    } else {
-      // Append to current bank
-      const currentCount = selectedBank.questions.length;
-      const renumbered = aiQuestions.map((q, idx) => ({
-        ...q,
-        id: `q-ai-${Date.now()}-${idx}`,
-        number: currentCount + idx + 1,
-      }));
-      const updatedQuestions = [...selectedBank.questions, ...renumbered];
-      const updatedBank: QuestionBank = {
-        ...selectedBank,
-        questions: updatedQuestions,
-        totalQuestions: updatedQuestions.length,
-      };
-      setSelectedBank(updatedBank);
-      await handleSaveBankMeta(updatedBank);
+    try {
+      if (!selectedBank) {
+        // Create new bank from AI
+        const newBank: QuestionBank = {
+          id: `BANK-${Date.now()}`,
+          title: `Ujian ${titleInfo.subject} - ${titleInfo.topic}`,
+          subjectId:
+            subjects.find((s) => s.name.toLowerCase().includes(titleInfo.subject.toLowerCase()))?.id ||
+            (subjects[0]?.id || 'SUB-01'),
+          gradeLevel: '10',
+          teacherId: 'T01',
+          totalQuestions: aiQuestions.length,
+          durationMinutes: Math.min(aiQuestions.length * 3, 90),
+          passingScore: 75,
+          questions: aiQuestions,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await api.saveQuestionBank(newBank);
+        setSelectedBank(newBank);
+        setIsEditingBank(true);
+      } else {
+        // Append to current bank
+        const currentCount = selectedBank.questions.length;
+        const renumbered = aiQuestions.map((q, idx) => ({
+          ...q,
+          id: `q-ai-${Date.now()}-${idx}`,
+          number: currentCount + idx + 1,
+        }));
+        const updatedQuestions = [...selectedBank.questions, ...renumbered];
+        const updatedBank: QuestionBank = {
+          ...selectedBank,
+          questions: updatedQuestions,
+          totalQuestions: updatedQuestions.length,
+          updatedAt: new Date().toISOString(),
+        };
+        setSelectedBank(updatedBank);
+        await api.saveQuestionBank(updatedBank);
+      }
+      onRefreshData();
+    } catch (err: any) {
+      console.error('Error importing questions to bank:', err);
     }
-    onRefreshData();
   };
 
   const handleOpenDeployModal = (bank: QuestionBank) => {
@@ -1180,17 +1187,31 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                   )}
 
                   {/* Options */}
-                  {q.options && (
+                  {Array.isArray(q.options) && q.options.length > 0 && (
                     <div className="pl-3 border-l-2 border-slate-200 space-y-1 text-slate-600">
                       {q.options.map((opt, oIdx) => (
-                        <div key={oIdx}>{opt}</div>
+                        <div key={oIdx}>{typeof opt === 'string' ? opt : JSON.stringify(opt)}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Matching pairs if any */}
+                  {Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0 && (
+                    <div className="pl-3 border-l-2 border-indigo-200 space-y-1 text-slate-700 bg-indigo-50/40 p-2 rounded-lg">
+                      <div className="font-semibold text-[11px] text-indigo-800 mb-1">Pasangan Menjodohkan:</div>
+                      {q.matchingPairs.map((pair, pIdx) => (
+                        <div key={pIdx} className="text-xs flex items-center gap-2">
+                          <span className="font-semibold text-slate-800">{pair.left}</span>
+                          <span className="text-indigo-400">➔</span>
+                          <span>{pair.right}</span>
+                        </div>
                       ))}
                     </div>
                   )}
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
                     <div className="text-emerald-700 font-semibold">
-                      Kunci: {JSON.stringify(q.correctAnswer)}
+                      Kunci: {typeof q.correctAnswer === 'object' ? JSON.stringify(q.correctAnswer) : String(q.correctAnswer)}
                     </div>
                     {q.explanation && <div className="text-slate-600 italic">{q.explanation}</div>}
                   </div>

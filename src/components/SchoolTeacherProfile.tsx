@@ -82,6 +82,20 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
       });
 
       if (res && res.success) {
+        const createdTeacher = res.teacher;
+        if (createdTeacher) {
+          try {
+            const passMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
+            passMap[createdTeacher.id] = cleanPassword;
+            localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(passMap));
+            localStorage.setItem('educbt_last_teacher_id', createdTeacher.id);
+
+            const cachedTeachers = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
+            const filtered = cachedTeachers.filter((t: Teacher) => t.id !== createdTeacher.id);
+            filtered.unshift(createdTeacher);
+            localStorage.setItem('educbt_custom_teachers', JSON.stringify(filtered));
+          } catch {}
+        }
         onRefreshData();
         setTeacherActionSuccess(`Akun Guru "${newTeacherName}" berhasil ditambahkan dan disimpan ke sistem CBT!`);
         setNewTeacherName('');
@@ -116,6 +130,9 @@ export const SchoolTeacherProfile: React.FC<SchoolTeacherProfileProps> = ({
     setIsSaving(true);
     setSaveSuccess(false);
     try {
+      try {
+        localStorage.setItem('educbt_school_profile', JSON.stringify(profile));
+      } catch {}
       await api.saveSchoolProfile(profile);
       setSaveSuccess(true);
       onRefreshData();

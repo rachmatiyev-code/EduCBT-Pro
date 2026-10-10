@@ -23,13 +23,20 @@ export const api = {
       // Merge saved passwords into teachers from educbt_teacher_saved_passwords
       try {
         const savedPassJson = localStorage.getItem('educbt_teacher_saved_passwords');
-        if (savedPassJson && result && Array.isArray(result.teachers)) {
-          const savedPassMap: Record<string, string> = JSON.parse(savedPassJson);
+        const savedPassMap: Record<string, string> = savedPassJson ? JSON.parse(savedPassJson) : {};
+        if (result && Array.isArray(result.teachers)) {
+          let mapUpdated = false;
           result.teachers.forEach((t: Teacher) => {
             if (savedPassMap[t.id]) {
               t.password = savedPassMap[t.id];
+            } else if (t.password) {
+              savedPassMap[t.id] = t.password;
+              mapUpdated = true;
             }
           });
+          if (mapUpdated) {
+            localStorage.setItem('educbt_teacher_saved_passwords', JSON.stringify(savedPassMap));
+          }
         }
 
         // Cache server data locally as offline snapshot
@@ -42,6 +49,15 @@ export const api = {
         if (result && Array.isArray(result.classes)) {
           localStorage.setItem('educbt_master_classes', JSON.stringify(result.classes));
         }
+        if (result && Array.isArray(result.subjects)) {
+          localStorage.setItem('educbt_master_subjects', JSON.stringify(result.subjects));
+        }
+        if (result && result.schoolProfile) {
+          localStorage.setItem('educbt_school_profile', JSON.stringify(result.schoolProfile));
+        }
+        if (result && result.gasWebhookUrl) {
+          localStorage.setItem('educbt_gas_webhook_url', result.gasWebhookUrl);
+        }
       } catch (e) {
         // ignore localStorage error
       }
@@ -53,11 +69,16 @@ export const api = {
         const localTeachers = JSON.parse(localStorage.getItem('educbt_custom_teachers') || '[]');
         const localStudents = JSON.parse(localStorage.getItem('educbt_master_students') || '[]');
         const localClasses = JSON.parse(localStorage.getItem('educbt_master_classes') || '[]');
+        const localSubjects = JSON.parse(localStorage.getItem('educbt_master_subjects') || '[]');
+        const localProfile = JSON.parse(localStorage.getItem('educbt_school_profile') || 'null');
+        const localGas = localStorage.getItem('educbt_gas_webhook_url') || '';
         return {
+          schoolProfile: localProfile,
           teachers: localTeachers,
           students: localStudents,
           classes: localClasses,
-          subjects: [],
+          subjects: localSubjects,
+          gasWebhookUrl: localGas,
           questionBanks: [],
           examSessions: [],
           submissions: [],
@@ -69,12 +90,20 @@ export const api = {
   },
 
   async saveSchoolProfile(profile: Partial<SchoolProfile>) {
-    const res = await fetch('/api/data/school-profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profile),
-    });
-    return res.json();
+    try {
+      localStorage.setItem('educbt_school_profile', JSON.stringify(profile));
+    } catch {}
+    try {
+      const res = await fetch('/api/data/school-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile),
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Network issue on saveSchoolProfile, saved locally:', err);
+      return { success: true, schoolProfile: profile };
+    }
   },
 
   async saveMasterData(payload: {
@@ -90,6 +119,9 @@ export const api = {
       }
       if (payload.classes) {
         localStorage.setItem('educbt_master_classes', JSON.stringify(payload.classes));
+      }
+      if (payload.subjects) {
+        localStorage.setItem('educbt_master_subjects', JSON.stringify(payload.subjects));
       }
       if (payload.teachers) {
         localStorage.setItem('educbt_custom_teachers', JSON.stringify(payload.teachers));
@@ -108,9 +140,9 @@ export const api = {
         return await res.json();
       }
       return { success: true, message: 'Data master berhasil diperbarui.' };
-    } catch (err: any) {
-      console.warn('saveMasterData network issue, cached locally:', err);
-      return { success: true, message: 'Data master tersimpan secara lokal.' };
+    } catch (err) {
+      console.warn('Network issue on saveMasterData, saved locally:', err);
+      return { success: true, message: 'Data tersimpan secara lokal di browser.' };
     }
   },
 

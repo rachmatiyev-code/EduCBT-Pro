@@ -20,10 +20,11 @@ import {
   ShieldCheck,
   Check,
 } from 'lucide-react';
-import { Teacher, Student, ExamSession } from '../types/cbt';
+import { Teacher, Student, ExamSession, SchoolProfile } from '../types/cbt';
 import { api } from '../services/api';
 
 interface LoginModalProps {
+  schoolProfile?: SchoolProfile;
   teachers: Teacher[];
   students: Student[];
   sessions: ExamSession[];
@@ -34,6 +35,7 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
+  schoolProfile,
   teachers,
   students,
   sessions,
@@ -86,17 +88,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   // Helper to retrieve saved password for a teacher
   const getSavedPasswordForTeacher = (teacherId: string, fallbackTeacher?: Teacher): string => {
-    const match = fallbackTeacher || localTeachers.find((t) => t.id === teacherId);
-    if (match?.password && match.password !== '1234') {
-      return match.password;
-    }
     try {
       const savedMap = JSON.parse(localStorage.getItem('educbt_teacher_saved_passwords') || '{}');
       if (savedMap && savedMap[teacherId]) {
         return savedMap[teacherId];
       }
     } catch {}
-    return match?.password || '1234';
+    const match = fallbackTeacher || localTeachers.find((t) => t.id === teacherId);
+    if (match?.password) {
+      return match.password;
+    }
+    return '1234';
   };
 
   // Sync selected teacher & password when local teachers load or change
@@ -481,12 +483,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden relative z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* Brand Banner */}
-        <div className="bg-linear-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 text-center space-y-2 border-b border-indigo-900/50">
+        <div className="bg-linear-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 text-center space-y-1.5 border-b border-indigo-900/50">
           <div className="w-14 h-14 bg-indigo-600/30 border border-indigo-400/30 rounded-2xl flex items-center justify-center mx-auto mb-1 text-indigo-300 shadow-inner">
             <School className="w-8 h-8" />
           </div>
           <h1 className="text-xl font-extrabold tracking-tight">EduCBT Pro Cloud</h1>
-          <p className="text-xs text-indigo-200/80">
+          <p className="text-sm font-bold text-indigo-200 tracking-wide">
+            {schoolProfile?.name || 'SMP Negeri 5 Percontohan'}
+          </p>
+          <p className="text-xs text-indigo-300/80">
             Sistem Ujian Online Terpadu & Generator Soal AI
           </p>
         </div>
@@ -1093,8 +1098,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
-          <p className="text-[11px] text-slate-500">
-            EduCBT Pro Cloud • Kurikulum Merdeka Terintegrasi Google Workspace
+          <p className="text-[11px] text-slate-500 font-medium">
+            {schoolProfile?.name || 'EduCBT Pro Cloud'} • Kurikulum Merdeka Terintegrasi Google Workspace
           </p>
         </div>
       </div>

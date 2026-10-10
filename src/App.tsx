@@ -42,28 +42,71 @@ import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 export default function App() {
-  // App-wide state
-  const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>({
-    regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
-    educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
-    name: 'SMA Negeri 1 Prestasi Bangsa',
-    npsn: '20108922',
-    address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
-    phone: '(021) 7890-1234',
-    email: 'info@sman1prestasibangsa.sch.id',
-    principalName: 'Drs. H. Bambang Sugiarto, M.Pd.',
-    principalNip: '19680512 199403 1 004',
-    academicYear: '2026/2027',
-    semester: 'Ganjil',
+  // App-wide state with localStorage snapshots to prevent state wipes across tabs
+  const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_school_profile');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.name) return parsed;
+      }
+    } catch {}
+    return {
+      regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
+      educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+      name: 'SMP Negeri 5 Percontohan',
+      npsn: '20108922',
+      address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
+      phone: '(021) 7890-1234',
+      email: 'info@sman1prestasibangsa.sch.id',
+      principalName: 'Drs. H. Bambang Sugiarto, M.Pd.',
+      principalNip: '19680512 199403 1 004',
+      academicYear: '2026/2027',
+      semester: 'Ganjil',
+    };
   });
 
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_custom_teachers');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_master_students');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [classes, setClasses] = useState<ClassGroup[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_master_classes');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [subjects, setSubjects] = useState<Subject[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_master_subjects');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
   const [questionBanks, setQuestionBanks] = useState<QuestionBank[]>([]);
   const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
-  const [gasWebhookUrl, setGasWebhookUrl] = useState<string>('');
+  const [gasWebhookUrl, setGasWebhookUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('educbt_gas_webhook_url') || '';
+    } catch {
+      return '';
+    }
+  });
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<
@@ -138,6 +181,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <LoginModal
+        schoolProfile={schoolProfile}
         teachers={teachers}
         students={students}
         sessions={examSessions}
@@ -403,24 +447,29 @@ export default function App() {
         onClose={() => setIsAIModalOpen(false)}
         onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
         onImportQuestions={async (questions, titleInfo) => {
-          const newBank: QuestionBank = {
-            id: `BANK-${Date.now()}`,
-            title: `Bank Soal AI - ${titleInfo.subject} (${titleInfo.topic})`,
-            subjectId:
+          try {
+            const matchedSubjectId =
               subjects.find((s) => s.name.toLowerCase().includes(titleInfo.subject.toLowerCase()))?.id ||
-              'SUB-01',
-            gradeLevel: '12',
-            teacherId: currentUser.teacher.id,
-            totalQuestions: questions.length,
-            durationMinutes: Math.min(questions.length * 3, 90),
-            passingScore: 75,
-            questions,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          await api.saveQuestionBank(newBank);
-          loadInitialData();
-          setActiveMenu('banks');
+              (subjects[0]?.id || 'SUB-01');
+            const newBank: QuestionBank = {
+              id: `BANK-${Date.now()}`,
+              title: `Bank Soal AI - ${titleInfo.subject} (${titleInfo.topic})`,
+              subjectId: matchedSubjectId,
+              gradeLevel: '12',
+              teacherId: currentUser?.role === 'teacher' ? currentUser.teacher.id : 'T01',
+              totalQuestions: questions.length,
+              durationMinutes: Math.min(questions.length * 3, 90),
+              passingScore: 75,
+              questions,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            await api.saveQuestionBank(newBank);
+            await loadInitialData();
+            setActiveMenu('banks');
+          } catch (err: any) {
+            console.error('Failed to import questions to bank:', err);
+          }
         }}
       />
 
