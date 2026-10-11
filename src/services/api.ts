@@ -59,6 +59,52 @@ export const api = {
         if (result && result.gasWebhookUrl) {
           localStorage.setItem('educbt_gas_webhook_url', result.gasWebhookUrl);
         }
+
+        // Cache & merge question banks locally
+        if (result && Array.isArray(result.questionBanks)) {
+          try {
+            const localBanks: QuestionBank[] = JSON.parse(
+              localStorage.getItem('educbt_master_question_banks') || '[]'
+            );
+            const bankMap = new Map<string, QuestionBank>();
+            result.questionBanks.forEach((b: QuestionBank) => bankMap.set(b.id, b));
+            localBanks.forEach((b: QuestionBank) => {
+              if (!bankMap.has(b.id)) {
+                bankMap.set(b.id, b);
+              }
+            });
+            result.questionBanks = Array.from(bankMap.values());
+            localStorage.setItem('educbt_master_question_banks', JSON.stringify(result.questionBanks));
+          } catch {}
+        } else {
+          try {
+            const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
+            result.questionBanks = localBanks;
+          } catch {}
+        }
+
+        // Cache & merge exam sessions locally
+        if (result && Array.isArray(result.examSessions)) {
+          try {
+            const localSessions: ExamSession[] = JSON.parse(
+              localStorage.getItem('educbt_master_exam_sessions') || '[]'
+            );
+            const sessionMap = new Map<string, ExamSession>();
+            result.examSessions.forEach((s: ExamSession) => sessionMap.set(s.id, s));
+            localSessions.forEach((s: ExamSession) => {
+              if (!sessionMap.has(s.id)) {
+                sessionMap.set(s.id, s);
+              }
+            });
+            result.examSessions = Array.from(sessionMap.values());
+            localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(result.examSessions));
+          } catch {}
+        } else {
+          try {
+            const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
+            result.examSessions = localSessions;
+          } catch {}
+        }
       } catch (e) {
         // ignore localStorage error
       }
@@ -73,6 +119,8 @@ export const api = {
         const localSubjects = JSON.parse(localStorage.getItem('educbt_master_subjects') || '[]');
         const localProfile = JSON.parse(localStorage.getItem('educbt_school_profile') || 'null');
         const localGas = localStorage.getItem('educbt_gas_webhook_url') || '';
+        const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
+        const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
         return {
           schoolProfile: localProfile,
           teachers: localTeachers,
@@ -80,8 +128,8 @@ export const api = {
           classes: localClasses,
           subjects: localSubjects,
           gasWebhookUrl: localGas,
-          questionBanks: [],
-          examSessions: [],
+          questionBanks: localBanks,
+          examSessions: localSessions,
           submissions: [],
         };
       } catch {
@@ -147,36 +195,123 @@ export const api = {
     }
   },
 
-  async saveQuestionBank(bank: QuestionBank) {
-    const res = await fetch('/api/data/question-banks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bank),
-    });
-    return res.json();
+  async saveQuestionBank(bank: QuestionBank): Promise<{ success: boolean; bank: QuestionBank; message?: string }> {
+    // 1. Immediately backup to localStorage for zero-loss offline resiliency
+    try {
+      const cached: QuestionBank[] = JSON.parse(
+        localStorage.getItem('educbt_master_question_banks') || '[]'
+      );
+      const idx = cached.findIndex((b) => b.id === bank.id);
+      if (idx >= 0) {
+        cached[idx] = bank;
+      } else {
+        cached.push(bank);
+      }
+      localStorage.setItem('educbt_master_question_banks', JSON.stringify(cached));
+    } catch {}
+
+    // 2. Sync to backend API safely
+    try {
+      const res = await fetch('/api/data/question-banks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bank),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return data;
+      }
+      return { success: true, bank, message: 'Bank soal tersimpan di penyimpanan lokal.' };
+    } catch (err: any) {
+      console.warn('Network issue saving question bank, saved locally:', err);
+      return { success: true, bank, message: 'Bank soal tersimpan secara lokal.' };
+    }
   },
 
-  async deleteQuestionBank(id: string) {
-    const res = await fetch(`/api/data/question-banks/${id}`, {
-      method: 'DELETE',
-    });
-    return res.json();
+  async deleteQuestionBank(id: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const cached: QuestionBank[] = JSON.parse(
+        localStorage.getItem('educbt_master_question_banks') || '[]'
+      );
+      const updated = cached.filter((b) => b.id !== id);
+      localStorage.setItem('educbt_master_question_banks', JSON.stringify(updated));
+    } catch {}
+
+    try {
+      const res = await fetch(`/api/data/question-banks/${id}`, {
+        method: 'DELETE',
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return await res.json();
+      }
+      return { success: true, message: 'Bank soal berhasil dihapus.' };
+    } catch {
+      return { success: true, message: 'Bank soal dihapus secara lokal.' };
+    }
   },
 
-  async saveExamSession(session: ExamSession) {
-    const res = await fetch('/api/data/exam-sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(session),
-    });
-    return res.json();
+  async saveExamSession(session: ExamSession): Promise<{ success: boolean; session: ExamSession; message?: string }> {
+    // 1. Immediately persist to localStorage for instant, zero-loss offline availability
+    try {
+      const cached: ExamSession[] = JSON.parse(
+        localStorage.getItem('educbt_master_exam_sessions') || '[]'
+      );
+      const idx = cached.findIndex((s) => s.id === session.id);
+      if (idx >= 0) {
+        cached[idx] = session;
+      } else {
+        cached.push(session);
+      }
+      localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(cached));
+    } catch {}
+
+    // 2. Sync to backend API safely without unhandled JSON parsing errors
+    try {
+      const res = await fetch('/api/data/exam-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(session),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return data;
+      }
+      // If server returned non-JSON (HTML 404/500/proxy page)
+      const text = await res.text();
+      console.warn('Non-JSON response from /api/data/exam-sessions:', text.substring(0, 100));
+      return { success: true, session, message: 'Sesi ujian berhasil disimpan ke penyimpanan lokal.' };
+    } catch (err: any) {
+      console.warn('Network issue saving exam session to backend, saved locally:', err);
+      return { success: true, session, message: 'Sesi ujian tersimpan secara lokal di browser.' };
+    }
   },
 
-  async deleteExamSession(id: string) {
-    const res = await fetch(`/api/data/exam-sessions/${id}`, {
-      method: 'DELETE',
-    });
-    return res.json();
+  async deleteExamSession(id: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const cached: ExamSession[] = JSON.parse(
+        localStorage.getItem('educbt_master_exam_sessions') || '[]'
+      );
+      const updated = cached.filter((s) => s.id !== id);
+      localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(updated));
+    } catch {}
+
+    try {
+      const res = await fetch(`/api/data/exam-sessions/${id}`, {
+        method: 'DELETE',
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return await res.json();
+      }
+      return { success: true, message: 'Sesi ujian berhasil dihapus.' };
+    } catch {
+      return { success: true, message: 'Sesi ujian dihapus secara lokal.' };
+    }
   },
 
   // AI Question Generation Engine with Dual-Engine (Direct Google API & Backend Proxy)

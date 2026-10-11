@@ -684,49 +684,77 @@ app.post('/api/teacher/register', (req, res) => {
 });
 
 app.post('/api/data/question-banks', (req, res) => {
-  const bank = req.body;
-  if (!bank.id) {
-    bank.id = `BANK-${Date.now()}`;
+  try {
+    const bank = req.body || {};
+    if (!bank.id) {
+      bank.id = `BANK-${Date.now()}`;
+    }
+    if (!Array.isArray(examDataStore.questionBanks)) {
+      examDataStore.questionBanks = [];
+    }
+    const existingIdx = examDataStore.questionBanks.findIndex((b) => b.id === bank.id);
+    if (existingIdx >= 0) {
+      examDataStore.questionBanks[existingIdx] = bank;
+    } else {
+      examDataStore.questionBanks.push(bank);
+    }
+    saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
+    return res.json({ success: true, bank });
+  } catch (err: any) {
+    console.error('Error saving question bank in server:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menyimpan bank soal' });
   }
-  const existingIdx = examDataStore.questionBanks.findIndex((b) => b.id === bank.id);
-  if (existingIdx >= 0) {
-    examDataStore.questionBanks[existingIdx] = bank;
-  } else {
-    examDataStore.questionBanks.push(bank);
-  }
-  saveDataStore();
-  syncToGasWebhook('backupAllData', { payload: examDataStore });
-  return res.json({ success: true, bank });
 });
 
 app.delete('/api/data/question-banks/:id', (req, res) => {
-  examDataStore.questionBanks = examDataStore.questionBanks.filter((b) => b.id !== req.params.id);
-  saveDataStore();
-  syncToGasWebhook('backupAllData', { payload: examDataStore });
-  return res.json({ success: true, message: 'Bank soal berhasil dihapus.' });
+  try {
+    if (Array.isArray(examDataStore.questionBanks)) {
+      examDataStore.questionBanks = examDataStore.questionBanks.filter((b) => b.id !== req.params.id);
+    }
+    saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
+    return res.json({ success: true, message: 'Bank soal berhasil dihapus.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menghapus bank soal' });
+  }
 });
 
 app.post('/api/data/exam-sessions', (req, res) => {
-  const session = req.body;
-  if (!session.id) {
-    session.id = `SES-${Date.now()}`;
+  try {
+    const session = req.body || {};
+    if (!session.id) {
+      session.id = `SES-${Date.now()}`;
+    }
+    if (!Array.isArray(examDataStore.examSessions)) {
+      examDataStore.examSessions = [];
+    }
+    const existingIdx = examDataStore.examSessions.findIndex((s) => s.id === session.id);
+    if (existingIdx >= 0) {
+      examDataStore.examSessions[existingIdx] = session;
+    } else {
+      examDataStore.examSessions.push(session);
+    }
+    saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
+    return res.json({ success: true, session });
+  } catch (err: any) {
+    console.error('Error saving exam session in server:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menyimpan sesi ujian' });
   }
-  const existingIdx = examDataStore.examSessions.findIndex((s) => s.id === session.id);
-  if (existingIdx >= 0) {
-    examDataStore.examSessions[existingIdx] = session;
-  } else {
-    examDataStore.examSessions.push(session);
-  }
-  saveDataStore();
-  syncToGasWebhook('backupAllData', { payload: examDataStore });
-  return res.json({ success: true, session });
 });
 
 app.delete('/api/data/exam-sessions/:id', (req, res) => {
-  examDataStore.examSessions = examDataStore.examSessions.filter((s) => s.id !== req.params.id);
-  saveDataStore();
-  syncToGasWebhook('backupAllData', { payload: examDataStore });
-  return res.json({ success: true, message: 'Sesi ujian berhasil dihapus.' });
+  try {
+    if (Array.isArray(examDataStore.examSessions)) {
+      examDataStore.examSessions = examDataStore.examSessions.filter((s) => s.id !== req.params.id);
+    }
+    saveDataStore();
+    syncToGasWebhook('backupAllData', { payload: examDataStore });
+    return res.json({ success: true, message: 'Sesi ujian berhasil dihapus.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menghapus sesi ujian' });
+  }
 });
 
 // Live Proctoring Heartbeat

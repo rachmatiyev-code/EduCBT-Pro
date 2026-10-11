@@ -98,8 +98,21 @@ export default function App() {
     return [];
   });
 
-  const [questionBanks, setQuestionBanks] = useState<QuestionBank[]>([]);
-  const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
+  const [questionBanks, setQuestionBanks] = useState<QuestionBank[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_master_question_banks');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+
+  const [examSessions, setExamSessions] = useState<ExamSession[]>(() => {
+    try {
+      const cached = localStorage.getItem('educbt_master_exam_sessions');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
   const [gasWebhookUrl, setGasWebhookUrl] = useState<string>(() => {
     try {
       return localStorage.getItem('educbt_gas_webhook_url') || '';
