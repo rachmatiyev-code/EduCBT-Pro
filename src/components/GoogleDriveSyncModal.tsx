@@ -22,14 +22,22 @@ import { api } from '../services/api';
 interface GoogleDriveSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onDataReloaded?: () => void;
 }
 
-export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOpen, onClose }) => {
+export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
+  isOpen,
+  onClose,
+  onDataReloaded,
+}) => {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [savedUrl, setSavedUrl] = useState('');
   const [copiedScript, setCopiedScript] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSendingTestRow, setIsSendingTestRow] = useState(false);
+  const [isPullingData, setIsPullingData] = useState(false);
+  const [isPushingData, setIsPushingData] = useState(false);
+  const [showCodePreview, setShowCodePreview] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; canForceSave?: boolean } | null>(null);
 
   useEffect(() => {
@@ -195,6 +203,59 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
     }
   };
 
+  const handlePullAllData = async () => {
+    setIsPullingData(true);
+    setTestResult(null);
+    try {
+      const res = await api.pullDataFromGas(savedUrl || webhookUrl);
+      if (res.success) {
+        setTestResult({
+          success: true,
+          message: 'Berhasil menarik seluruh data (Siswa, Guru, Kelas, Mapel, Bank Soal, Sesi Ujian) dari Google Sheets!',
+        });
+        if (onDataReloaded) onDataReloaded();
+      } else {
+        setTestResult({
+          success: false,
+          message: res.error || 'Gagal menarik data dari Google Sheets.',
+        });
+      }
+    } catch (e: any) {
+      setTestResult({
+        success: false,
+        message: e.message || 'Gagal menarik data dari Google Sheets.',
+      });
+    } finally {
+      setIsPullingData(false);
+    }
+  };
+
+  const handlePushAllData = async () => {
+    setIsPushingData(true);
+    setTestResult(null);
+    try {
+      const res = await api.pushDataToGas(savedUrl || webhookUrl);
+      if (res.success) {
+        setTestResult({
+          success: true,
+          message: 'Seluruh database EduCBT berhasil disinkronkan ke Google Sheets & Google Drive!',
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: res.error || 'Gagal mengirim data ke Google Sheets.',
+        });
+      }
+    } catch (e: any) {
+      setTestResult({
+        success: false,
+        message: e.message || 'Gagal mengirim data ke Google Sheets.',
+      });
+    } finally {
+      setIsPushingData(false);
+    }
+  };
+
   const handleClearWebhook = async () => {
     if (confirm('Apakah Anda yakin ingin memutuskan integrasi Google Drive & Spreadsheet?')) {
       await api.setGasWebhook('');
@@ -237,43 +298,66 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
         <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-700">
           {/* Status Banner */}
           {savedUrl ? (
-            <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-600 text-white rounded-xl">
-                  <CheckCircle2 className="w-5 h-5" />
+            <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col gap-3 shadow-2xs">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-600 text-white rounded-xl">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-emerald-950 text-xs">
+                      Cloud Database Google Apps Script Aktif (Full Firebase Replacement)
+                    </h4>
+                    <p className="text-[11px] text-emerald-800 font-mono truncate max-w-md">
+                      {savedUrl}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-bold text-emerald-950 text-xs">
-                    Integrasi Cloud Google Drive Aktif
-                  </h4>
-                  <p className="text-[11px] text-emerald-800 font-mono truncate max-w-md">
-                    {savedUrl}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                <button
-                  type="button"
-                  onClick={handleSendTestRow}
-                  disabled={isSendingTestRow}
-                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-xl font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                  title="Kirim 1 baris data percobaan ke Spreadsheet Google Drive"
-                >
-                  {isSendingTestRow ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Send className="w-3.5 h-3.5" />
-                  )}
-                  <span>Kirim Data Tes</span>
-                </button>
+
                 <button
                   type="button"
                   onClick={handleClearWebhook}
-                  className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl font-semibold text-[11px] flex items-center gap-1 cursor-pointer self-end sm:self-auto"
                   title="Putus koneksi webhook"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Putus</span>
+                </button>
+              </div>
+
+              {/* Cloud Sync Operations Toolbar */}
+              <div className="pt-2 border-t border-emerald-200/80 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePullAllData}
+                  disabled={isPullingData}
+                  className="px-3.5 py-2 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                  title="Ambil data siswa, rombel, bank soal, dan sesi dari Google Sheets"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isPullingData ? 'animate-spin text-emerald-600' : ''}`} />
+                  <span>{isPullingData ? 'Menarik Data...' : 'Tarik Data dari Google Sheets (Pull)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePushAllData}
+                  disabled={isPushingData}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                  title="Kirim dan sinkronkan seluruh database lokal ke Google Sheets & Google Drive"
+                >
+                  <Send className={`w-3.5 h-3.5 ${isPushingData ? 'animate-bounce' : ''}`} />
+                  <span>{isPushingData ? 'Mengirim Data...' : 'Kirim Semua Data ke Google Sheets (Push)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendTestRow}
+                  disabled={isSendingTestRow}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer"
+                  title="Kirim 1 baris data percobaan"
+                >
+                  <Send className="w-3 h-3 text-slate-500" />
+                  <span>Kirim Baris Tes</span>
                 </button>
               </div>
             </div>
@@ -317,20 +401,20 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
                     EduCBT_Master_Database (Spreadsheet)
                   </span>
                   <span className="text-[10px] text-slate-500">
-                    ➔ Sheet: Submissions, Sessions, Question_Banks
+                    ➔ 9 Sheet Lengkap: Students, Teachers, Classes, Subjects, Question_Banks, Sessions, Live_Monitoring, Submissions, School_Profile
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <FolderOpen className="w-3.5 h-3.5 text-teal-600" />
-                  <span className="font-semibold text-slate-800">EduCBT_Media_Assets/</span>
+                  <span className="font-semibold text-slate-800">EduCBT_Cloud_Database/</span>
                   <span className="text-[10px] text-slate-500">
-                    ➔ Wadah terpusat berkas audio, gambar soal, dan backup JSON
+                    ➔ Wadah terpusat berkas snapshot backup JSON dan aset ujian
                   </span>
                 </div>
               </div>
             </div>
             <p className="text-[11px] text-emerald-800 leading-relaxed">
-              * Seluruh jawaban ujian siswa akan disimpan secara otomatis ke Google Spreadsheet Anda tanpa membebani server lokal.
+              * Berfungsi penuh sebagai serverless cloud database pengganti Firebase: menyimpan data siswa/guru, realtime device presence, bank soal, dan hasil penilaian otomatis.
             </p>
           </div>
 
@@ -347,25 +431,34 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
                   </span>
                   <h5 className="font-bold text-slate-800 text-xs">Salin Script Backend</h5>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Salin kode Google Apps Script lengkap yang sudah disiapkan khusus.
+                    Salin kode Google Apps Script lengkap (Code.gs) yang mengelola 9 database sheets.
                   </p>
                 </div>
-                <button
-                  onClick={handleCopyScript}
-                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                >
-                  {copiedScript ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>Tersalin ke Clipboard!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Salin Script (Code.gs)</span>
-                    </>
-                  )}
-                </button>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={handleCopyScript}
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  >
+                    {copiedScript ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>Tersalin ke Clipboard!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Salin Script (Code.gs)</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCodePreview(!showCodePreview)}
+                    className="w-full py-1 text-[11px] text-slate-600 hover:text-slate-900 font-semibold cursor-pointer underline text-center"
+                  >
+                    {showCodePreview ? 'Sembunyikan Kode' : 'Lihat Pratinjau Kode'}
+                  </button>
+                </div>
               </div>
 
               {/* Step 2 */}
@@ -406,6 +499,26 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({ isOp
                 </span>
               </div>
             </div>
+
+            {/* Code Preview Box if toggled */}
+            {showCodePreview && (
+              <div className="p-4 bg-slate-900 rounded-2xl text-slate-200 text-xs font-mono space-y-2 border border-slate-700 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="text-[11px] text-slate-400 font-semibold">Pratinjau Kode Google Apps Script (Code.gs):</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyScript}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-sans font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Salin Kode</span>
+                  </button>
+                </div>
+                <div className="max-h-60 overflow-y-auto text-[11px] leading-relaxed text-slate-300 font-mono whitespace-pre select-all">
+                  {GOOGLE_APPS_SCRIPT_CODE}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* URL Input & Test Connection */}

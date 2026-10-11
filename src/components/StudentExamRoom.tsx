@@ -141,10 +141,10 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     const sendPing = () => {
       const answeredCount = Object.keys(answers).length;
       api.sendProctorHeartbeat({
-        studentId: student.nisn,
+        studentId: String(student.nisn).trim(),
         studentName: student.name,
         classId: student.classId,
-        sessionCode: session.sessionCode,
+        sessionCode: String(session.sessionCode).trim().toUpperCase(),
         currentQuestionIndex: currentIndex + 1,
         answeredCount,
         totalQuestions: questions.length,
@@ -156,7 +156,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     };
 
     sendPing();
-    const interval = setInterval(sendPing, 8000);
+    const interval = setInterval(sendPing, 5000);
     return () => clearInterval(interval);
   }, [student, session, currentIndex, answers, questions.length, tabBlurCount, batteryLevel, submissionResult]);
 
@@ -653,44 +653,129 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
                   )}
 
                   {/* Type 4: Matching Pairs */}
-                  {currentQ.type === 'matching' && currentQ.matchingPairs && (
-                    <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                      <p className="text-xs font-semibold text-slate-700 mb-2">
-                        Pilih pasangan yang sesuai untuk setiap premis di kolom kiri:
-                      </p>
-                      {currentQ.matchingPairs.map((pair, pIdx) => {
-                        const currentMatchObj = answers[currentQ.id] || {};
-                        const selectedMatch = currentMatchObj[pair.left] || '';
+                  {currentQ.type === 'matching' && (() => {
+                    const effectivePairs = Array.isArray(currentQ.matchingPairs) && currentQ.matchingPairs.length > 0
+                      ? currentQ.matchingPairs
+                      : typeof currentQ.correctAnswer === 'object' && currentQ.correctAnswer !== null
+                      ? Object.entries(currentQ.correctAnswer).map(([left, right]) => ({
+                          left: String(left),
+                          right: String(right),
+                        }))
+                      : [];
 
-                        return (
-                          <div
-                            key={pIdx}
-                            className="bg-white p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                          >
-                            <span className="font-medium text-xs text-slate-800 flex-1">
-                              {pair.left}
-                            </span>
-                            <span className="text-indigo-600 font-bold hidden sm:inline">➔</span>
-                            <select
-                              value={selectedMatch}
-                              onChange={(e) => {
-                                const nextMatch = { ...currentMatchObj, [pair.left]: e.target.value };
-                                handleSelectAnswer(currentQ.id, nextMatch);
-                              }}
-                              className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none flex-1"
-                            >
-                              <option value="">-- Pilih Jawaban Pasangan --</option>
-                              {currentQ.matchingPairs?.map((optPair, opIdx) => (
-                                <option key={opIdx} value={optPair.right}>
-                                  {optPair.right}
-                                </option>
-                              ))}
-                            </select>
+                    const currentMatchObj = (answers[currentQ.id] && typeof answers[currentQ.id] === 'object')
+                      ? answers[currentQ.id]
+                      : {};
+
+                    // Extract all unique right choices and sort deterministically so they are not in 1:1 order
+                    const availableRightOptions = Array.from(new Set(effectivePairs.map((p) => p.right))).sort((a, b) => b.localeCompare(a));
+                    const answeredPairsCount = effectivePairs.filter((p) => Boolean(currentMatchObj[p.left])).length;
+
+                    return (
+                      <div className="space-y-4 bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                              Mencocokkan Soal & Opsi Jawaban (Matching Pairs)
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              Pilih pasangan jawaban yang paling tepat di kolom kanan untuk setiap premis soal di kolom kiri.
+                            </p>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                              answeredPairsCount === effectivePairs.length && effectivePairs.length > 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : answeredPairsCount > 0
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {answeredPairsCount}/{effectivePairs.length} Terjodohkan
+                            </span>
+                            {answeredPairsCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleSelectAnswer(currentQ.id, {})}
+                                className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                              >
+                                Reset Pilihan
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {effectivePairs.length === 0 ? (
+                          <div className="p-4 bg-amber-50 rounded-xl text-xs text-amber-800">
+                            Pasangan butir soal menjodohkan belum tersedia atau belum dikonfigurasi oleh guru.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {effectivePairs.map((pair, pIdx) => {
+                              const selectedMatch = currentMatchObj[pair.left] || '';
+                              const isMatched = Boolean(selectedMatch);
+
+                              return (
+                                <div
+                                  key={pIdx}
+                                  className={`p-3.5 rounded-xl border transition-all ${
+                                    isMatched
+                                      ? 'bg-indigo-50/50 border-indigo-200'
+                                      : 'bg-white border-slate-200'
+                                  }`}
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    {/* Left premise (Soal) */}
+                                    <div className="flex items-start gap-2.5 flex-1">
+                                      <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                                        {pIdx + 1}
+                                      </span>
+                                      <div className="space-y-0.5 flex-1">
+                                        <span className="text-xs font-semibold text-slate-800 block">
+                                          {pair.left}
+                                        </span>
+                                        <span className={`text-[10px] font-medium ${isMatched ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                          {isMatched ? '✓ Terpasang dengan opsi di kanan' : '• Belum dijodohkan'}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Arrow connector */}
+                                    <span className="text-indigo-500 font-bold hidden sm:inline text-sm shrink-0">➔</span>
+
+                                    {/* Right response selector (Jawaban) */}
+                                    <div className="flex-1">
+                                      <select
+                                        value={selectedMatch}
+                                        onChange={(e) => {
+                                          const nextMatch = { ...currentMatchObj, [pair.left]: e.target.value };
+                                          if (!e.target.value) {
+                                            delete nextMatch[pair.left];
+                                          }
+                                          handleSelectAnswer(currentQ.id, nextMatch);
+                                        }}
+                                        className={`w-full px-3 py-2 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all ${
+                                          isMatched
+                                            ? 'bg-white border-2 border-indigo-400 text-indigo-900 font-bold'
+                                            : 'bg-slate-50 border border-slate-300 text-slate-700'
+                                        }`}
+                                      >
+                                        <option value="">-- Pilih Pasangan Jawaban Cocok --</option>
+                                        {availableRightOptions.map((optRight, opIdx) => (
+                                          <option key={opIdx} value={optRight}>
+                                            {optRight}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Type 5: Short Answer */}
                   {currentQ.type === 'short_answer' && (

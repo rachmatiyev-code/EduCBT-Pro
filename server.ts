@@ -100,6 +100,7 @@ let examDataStore: {
     { id: 'SUB-05', code: 'IPAS', name: 'IPAS (Ilmu Pengetahuan Alam & Sosial SD)', kkm: 75, teacherName: 'Dr. Siti Nurhaliza, M.Pd.' },
   ],
   students: [
+    { id: 'STD-000', nisn: '1', name: 'Siswa Percobaan (NISN 1)', classId: 'CLS-12A', gender: 'L' },
     { id: 'STD-SD001', nisn: '0151234001', name: 'Aisyah Putri Ramadhani', classId: 'CLS-SD1A', gender: 'P' },
     { id: 'STD-SD002', nisn: '0121234002', name: 'Bima Satria Nusantara', classId: 'CLS-SD4A', gender: 'L' },
     { id: 'STD-SD003', nisn: '0101234003', name: 'Citra Kirana Dewi', classId: 'CLS-SD6A', gender: 'P' },
@@ -137,6 +138,16 @@ function loadDataStore() {
         }
         if (Array.isArray(parsed.students) && parsed.students.length > 0) {
           examDataStore.students = parsed.students;
+        }
+        // Always guarantee test student with NISN "1" is present
+        if (!examDataStore.students.some((s) => String(s.nisn).trim() === '1')) {
+          examDataStore.students.unshift({
+            id: 'STD-000',
+            nisn: '1',
+            name: 'Siswa Percobaan (NISN 1)',
+            classId: 'CLS-12A',
+            gender: 'L',
+          });
         }
         if (Array.isArray(parsed.classes) && parsed.classes.length > 0) {
           examDataStore.classes = parsed.classes;
@@ -777,16 +788,19 @@ app.post('/api/proctor/heartbeat', (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing studentId or sessionCode' });
   }
 
-  const key = `${sessionCode}_${studentId}`;
-  examDataStore.livePings[key] = {
-    studentId,
-    studentName,
-    classId,
-    sessionCode,
-    currentQuestionIndex: currentQuestionIndex || 1,
-    answeredCount: answeredCount || 0,
-    totalQuestions: totalQuestions || 1,
-    tabBlurCount: tabBlurCount || 0,
+  const cleanCode = String(sessionCode).trim().toUpperCase();
+  const cleanId = String(studentId).trim();
+  const key = `${cleanCode}_${cleanId}`;
+
+  const pingRecord = {
+    studentId: cleanId,
+    studentName: studentName || 'Siswa',
+    classId: classId || '-',
+    sessionCode: cleanCode,
+    currentQuestionIndex: Number(currentQuestionIndex) || 1,
+    answeredCount: Number(answeredCount) || 0,
+    totalQuestions: Number(totalQuestions) || 1,
+    tabBlurCount: Number(tabBlurCount) || 0,
     device: device || 'Web Browser',
     batteryLevel,
     isOnline,
@@ -794,24 +808,124 @@ app.post('/api/proctor/heartbeat', (req, res) => {
     status: tabBlurCount > 2 ? 'warning' : 'active',
   };
 
+  examDataStore.livePings[key] = pingRecord;
+
+  // Background dispatch to GAS Webhook if configured
+  if (examDataStore.gasWebhookUrl) {
+    syncToGasWebhook('heartbeat', { payload: pingRecord });
+  }
+
   return res.json({ success: true });
 });
 
 app.get('/api/proctor/live/:sessionCode', (req, res) => {
-  const { sessionCode } = req.params;
+  const rawCode = (req.params.sessionCode || '').trim().toUpperCase();
   const now = Date.now();
   const list = Object.values(examDataStore.livePings)
-    .filter((p: any) => p.sessionCode === sessionCode)
+    .filter((p: any) => {
+      if (!rawCode || rawCode === 'ALL') return true;
+      return String(p.sessionCode || '').trim().toUpperCase() === rawCode;
+    })
     .map((p: any) => {
-      const isStillOnline = now - p.lastPing < 25000;
+      // 45s heartbeat grace period for mobile/network jitter
+      const isStillOnline = now - p.lastPing < 45000;
       return {
         ...p,
         isOnline: isStillOnline,
-        status: !isStillOnline ? 'offline' : p.tabBlurCount > 2 ? 'warning' : 'active',
+        status: !isStillOnline
+          ? 'offline'
+          : p.status === 'submitted'
+          ? 'submitted'
+          : p.tabBlurCount > 2
+          ? 'warning'
+          : 'active',
       };
     });
 
   return res.json({ success: true, liveList: list });
+});
+
+// GAS Full Database Sync Routes (Firebase Replacement)
+app.post('/api/gas/pull-data', async (req, res) => {
+  try {
+    const targetUrl = (req.body?.url && String(req.body.url).trim()) || examDataStore.gasWebhookUrl;
+    if (!targetUrl) {
+      return res.status(400).json({ success: false, error: 'URL Google Apps Script belum dikonfigurasi.' });
+    }
+    const cleanUrl = targetUrl.includes('?') ? `${targetUrl}&action=getAllData` : `${targetUrl}?action=getAllData`;
+    const response = await fetch(cleanUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    const result = await response.json();
+    if (result && result.status === 'success') {
+      if (Array.isArray(result.students) && result.students.length > 0) {
+        examDataStore.students = result.students;
+      }
+      if (Array.isArray(result.teachers) && result.teachers.length > 0) {
+        examDataStore.teachers = result.teachers;
+      }
+      if (Array.isArray(result.classes) && result.classes.length > 0) {
+        examDataStore.classes = result.classes;
+      }
+      if (Array.isArray(result.subjects) && result.subjects.length > 0) {
+        examDataStore.subjects = result.subjects;
+      }
+      if (Array.isArray(result.questionBanks) && result.questionBanks.length > 0) {
+        examDataStore.questionBanks = result.questionBanks;
+      }
+      if (Array.isArray(result.examSessions) && result.examSessions.length > 0) {
+        examDataStore.examSessions = result.examSessions;
+      }
+      if (result.schoolProfile && Object.keys(result.schoolProfile).length > 0) {
+        examDataStore.schoolProfile = { ...examDataStore.schoolProfile, ...result.schoolProfile };
+      }
+      // Ensure NISN 1 is preserved
+      if (!examDataStore.students.some((s) => String(s.nisn).trim() === '1')) {
+        examDataStore.students.unshift({
+          id: 'STD-000',
+          nisn: '1',
+          name: 'Siswa Percobaan (NISN 1)',
+          classId: 'CLS-12A',
+          gender: 'L',
+        });
+      }
+      saveDataStore();
+      return res.json({
+        success: true,
+        message: 'Seluruh data master berhasil ditarik dari Google Sheets!',
+        data: examDataStore,
+      });
+    }
+    return res.status(500).json({ success: false, error: 'Format data dari Google Apps Script tidak sesuai.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menarik data dari Google Sheets' });
+  }
+});
+
+app.post('/api/gas/push-data', async (req, res) => {
+  try {
+    const targetUrl = (req.body?.url && String(req.body.url).trim()) || examDataStore.gasWebhookUrl;
+    if (!targetUrl) {
+      return res.status(400).json({ success: false, error: 'URL Google Apps Script belum dikonfigurasi.' });
+    }
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'syncAllData',
+        payload: examDataStore,
+      }),
+    });
+    const result = await response.json();
+    return res.json({
+      success: true,
+      message: 'Seluruh data CBT berhasil disinkronkan ke Google Sheets & Google Drive!',
+      result,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal sinkron data ke Google Sheets' });
+  }
 });
 
 // Student Submission & Instant Scoring

@@ -336,8 +336,26 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       setMediaUrl('');
       setMediaCaption('');
     }
-    if (q.matchingPairs) {
+    if (q.matchingPairs && q.matchingPairs.length > 0) {
       setMatchingPairs(q.matchingPairs);
+    } else if (q.type === 'matching' && typeof q.correctAnswer === 'object' && q.correctAnswer !== null) {
+      const converted = Object.entries(q.correctAnswer).map(([left, right]) => ({
+        left: String(left),
+        right: String(right),
+      }));
+      setMatchingPairs(
+        converted.length > 0
+          ? converted
+          : [
+              { left: 'Premis 1', right: 'Jawaban 1' },
+              { left: 'Premis 2', right: 'Jawaban 2' },
+            ]
+      );
+    } else if (q.type === 'matching') {
+      setMatchingPairs([
+        { left: 'Premis 1', right: 'Jawaban 1' },
+        { left: 'Premis 2', right: 'Jawaban 2' },
+      ]);
     }
     setIsAddingQuestion(true);
   };
@@ -1120,51 +1138,89 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
 
               {/* Matching pairs */}
               {qType === 'matching' && (
-                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-semibold text-slate-700 uppercase">
-                      Pasangan Menjodohkan (Kiri ➔ Kanan)
-                    </label>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div>
+                      <label className="text-xs font-bold text-indigo-900 uppercase">
+                        Pasangan Menjodohkan (Kiri ➔ Kanan)
+                      </label>
+                      <p className="text-[11px] text-slate-500">
+                        Masukkan butir soal di kolom kiri dan pasangannya yang benar di kolom kanan. Pilihan kanan akan diacak otomatis untuk siswa.
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() =>
                         setMatchingPairs([
                           ...matchingPairs,
-                          { left: `Premis ${matchingPairs.length + 1}`, right: `Pasangan ${matchingPairs.length + 1}` },
+                          {
+                            left: `Premis ${matchingPairs.length + 1}`,
+                            right: `Jawaban ${matchingPairs.length + 1}`,
+                          },
                         ])
                       }
-                      className="text-xs text-indigo-600 font-semibold"
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold cursor-pointer shrink-0"
                     >
                       + Tambah Pasangan
                     </button>
                   </div>
-                  {matchingPairs.map((pair, pIdx) => (
-                    <div key={pIdx} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={pair.left}
-                        onChange={(e) => {
-                          const updated = [...matchingPairs];
-                          updated[pIdx].left = e.target.value;
-                          setMatchingPairs(updated);
-                        }}
-                        className="flex-1 px-3 py-1 bg-slate-50 rounded-lg border border-slate-300 text-xs"
-                        placeholder="Premis kiri"
-                      />
-                      <span className="text-slate-400">➔</span>
-                      <input
-                        type="text"
-                        value={pair.right}
-                        onChange={(e) => {
-                          const updated = [...matchingPairs];
-                          updated[pIdx].right = e.target.value;
-                          setMatchingPairs(updated);
-                        }}
-                        className="flex-1 px-3 py-1 bg-slate-50 rounded-lg border border-slate-300 text-xs"
-                        placeholder="Pasangan respon kanan"
-                      />
-                    </div>
-                  ))}
+
+                  <div className="grid grid-cols-12 gap-2 text-[11px] font-bold text-slate-500 uppercase px-1">
+                    <span className="col-span-1">No</span>
+                    <span className="col-span-5">Kolom Soal / Premis (Kiri)</span>
+                    <span className="col-span-1 text-center"></span>
+                    <span className="col-span-4">Kolom Kunci / Pasangan Cocok (Kanan)</span>
+                    <span className="col-span-1 text-center">Aksi</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {matchingPairs.map((pair, pIdx) => (
+                      <div key={pIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-50/70 p-2 rounded-xl border border-slate-200">
+                        <span className="col-span-1 font-mono font-bold text-xs text-slate-500 text-center">
+                          {pIdx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          value={pair.left}
+                          onChange={(e) => {
+                            const updated = [...matchingPairs];
+                            updated[pIdx].left = e.target.value;
+                            setMatchingPairs(updated);
+                          }}
+                          className="col-span-5 px-3 py-1.5 bg-white rounded-lg border border-slate-300 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          placeholder="Ketik premis soal kiri..."
+                        />
+                        <span className="col-span-1 text-center text-indigo-500 font-bold">➔</span>
+                        <input
+                          type="text"
+                          value={pair.right}
+                          onChange={(e) => {
+                            const updated = [...matchingPairs];
+                            updated[pIdx].right = e.target.value;
+                            setMatchingPairs(updated);
+                          }}
+                          className="col-span-4 px-3 py-1.5 bg-white rounded-lg border border-slate-300 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          placeholder="Ketik jawaban yang cocok..."
+                        />
+                        <div className="col-span-1 flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (matchingPairs.length <= 1) {
+                                alert('Soal menjodohkan minimal memiliki 1 pasangan!');
+                                return;
+                              }
+                              setMatchingPairs(matchingPairs.filter((_, idx) => idx !== pIdx));
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Hapus pasangan ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

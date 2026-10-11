@@ -422,6 +422,8 @@ export default function App() {
                 status: 'active',
               }
             }
+            allSessions={examSessions}
+            onSelectSession={(code) => setMonitoredSessionCode(code)}
             onBack={() => setActiveMenu('banks')}
           />
         )}
@@ -455,6 +457,7 @@ export default function App() {
       <GoogleDriveSyncModal
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
+        onDataReloaded={loadInitialData}
       />
 
       <AIPromptGeneratorModal

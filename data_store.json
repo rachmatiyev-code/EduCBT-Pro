@@ -96,6 +96,13 @@
   ],
   "students": [
     {
+      "id": "STD-000",
+      "nisn": "1",
+      "name": "Siswa Percobaan (NISN 1)",
+      "classId": "CLS-12A",
+      "gender": "L"
+    },
+    {
       "id": "STD-SD001",
       "nisn": "0151234001",
       "name": "Aisyah Putri Ramadhani",

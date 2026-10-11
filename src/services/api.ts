@@ -681,16 +681,89 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
     } catch (e) {
       // Non-blocking ping
     }
+
+    // Redundant direct ping to Google Apps Script if configured
+    try {
+      const gasUrl = localStorage.getItem('educbt_gas_webhook_url');
+      if (gasUrl && gasUrl.startsWith('http')) {
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'heartbeat', payload }),
+          mode: 'no-cors',
+        }).catch(() => {});
+      }
+    } catch {}
   },
 
   async fetchLiveProctoring(sessionCode: string): Promise<ProctorPing[]> {
+    const cleanCode = (sessionCode || 'ALL').trim().toUpperCase();
+    let localList: ProctorPing[] = [];
     try {
-      const res = await fetch(`/api/proctor/live/${sessionCode}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.liveList || [];
+      const res = await fetch(`/api/proctor/live/${encodeURIComponent(cleanCode)}`);
+      if (res.ok) {
+        const data = await res.json();
+        localList = data.liveList || [];
+      }
     } catch {
-      return [];
+      // ignore
+    }
+
+    // Also fetch from Google Apps Script if available and merge
+    try {
+      const gasUrl = localStorage.getItem('educbt_gas_webhook_url');
+      if (gasUrl && gasUrl.startsWith('http')) {
+        const gasQuery = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}action=getLiveMonitoring&sessionCode=${encodeURIComponent(cleanCode)}`;
+        const gRes = await fetch(gasQuery);
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          if (Array.isArray(gData.liveList) && gData.liveList.length > 0) {
+            const map = new Map<string, ProctorPing>();
+            localList.forEach((p) => map.set(`${p.sessionCode}_${p.studentId}`, p));
+            gData.liveList.forEach((p: ProctorPing) => {
+              const k = `${p.sessionCode}_${p.studentId}`;
+              if (!map.has(k) || (p.lastPing && p.lastPing > (map.get(k)?.lastPing || 0))) {
+                map.set(k, p);
+              }
+            });
+            return Array.from(map.values());
+          }
+        }
+      }
+    } catch {}
+
+    return localList;
+  },
+
+  async pullDataFromGas(url?: string): Promise<{ success: boolean; data?: any; message?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/gas/pull-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        if (data.data.students) localStorage.setItem('educbt_master_students', JSON.stringify(data.data.students));
+        if (data.data.questionBanks) localStorage.setItem('educbt_master_question_banks', JSON.stringify(data.data.questionBanks));
+        if (data.data.examSessions) localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(data.data.examSessions));
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Gagal menarik data dari Google Sheets' };
+    }
+  },
+
+  async pushDataToGas(url?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/gas/push-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Gagal mengirim data ke Google Sheets' };
     }
   },
 
@@ -754,15 +827,36 @@ Setiap butir soal wajib memiliki atribut: number (1-${count}), type ("multiple_c
           }
         }
       } else if (q.type === 'matching') {
-        if (typeof studentAns === 'object' && studentAns !== null && typeof q.correctAnswer === 'object') {
-          let pairCount = 0;
-          let matchCount = 0;
-          for (const key of Object.keys(q.correctAnswer)) {
-            pairCount++;
-            if (studentAns[key] && studentAns[key].trim().toLowerCase() === q.correctAnswer[key].trim().toLowerCase()) {
-              matchCount++;
+        const expectedPairs: Record<string, string> = {};
+        if (q.matchingPairs && Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0) {
+          q.matchingPairs.forEach((p) => {
+            if (p.left && p.right) {
+              expectedPairs[p.left.trim().toLowerCase()] = p.right.trim().toLowerCase();
             }
-          }
+          });
+        } else if (typeof q.correctAnswer === 'object' && q.correctAnswer !== null) {
+          Object.entries(q.correctAnswer).forEach(([k, v]) => {
+            if (k && v) {
+              expectedPairs[String(k).trim().toLowerCase()] = String(v).trim().toLowerCase();
+            }
+          });
+        }
+
+        if (typeof studentAns === 'object' && studentAns !== null) {
+          const expectedKeys = Object.keys(expectedPairs);
+          const pairCount = expectedKeys.length;
+          let matchCount = 0;
+
+          expectedKeys.forEach((expKey) => {
+            const studentKey = Object.keys(studentAns).find((k) => k.trim().toLowerCase() === expKey);
+            if (studentKey) {
+              const studentVal = String(studentAns[studentKey] || '').trim().toLowerCase();
+              if (studentVal === expectedPairs[expKey]) {
+                matchCount++;
+              }
+            }
+          });
+
           if (pairCount > 0) {
             pointsEarned = Math.round((matchCount / pairCount) * qMaxPoints);
             isCorrect = matchCount === pairCount;
