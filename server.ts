@@ -373,20 +373,20 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
     let response;
     try {
       response = await client.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.8-flash',
         contents: promptText,
         config: generateConfig,
       });
     } catch (primaryErr: any) {
-      console.warn('Primary 3.1-flash-lite failed, trying 3.8-flash:', primaryErr.message);
+      console.warn('Primary 3.8-flash failed, trying 3.1-flash-lite:', primaryErr.message);
       try {
         response = await client.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.1-flash-lite',
           contents: promptText,
           config: generateConfig,
         });
       } catch (secondaryErr: any) {
-        console.error('Secondary 3.8-flash also failed:', secondaryErr.message);
+        console.error('Secondary 3.1-flash-lite also failed:', secondaryErr.message);
         throw new Error(secondaryErr.message || primaryErr.message || 'Gagal menghubungi model Gemini.');
       }
     }
@@ -466,6 +466,11 @@ Pastikan bahasa Indonesia baku, akurat, dan tidak ada kesalahan penulisan.
         matchingPairs: q.matchingPairs || undefined,
         explanation: q.explanation || 'Pembahasan soal.',
         points: Number(q.points) || Math.round(100 / count),
+        cognitiveDomain: q.cognitiveDomain || 'bloom',
+        cognitiveLevel: q.cognitiveLevel || (qNum % 3 === 1 ? 'C3' : qNum % 3 === 2 ? 'C4' : 'C2'),
+        competencyIndicator: q.competencyIndicator || `Menganalisis materi ${topic || subject}`,
+        learningObjective: q.learningObjective || `Memahami capaian kompetensi dasar ${topic || subject}`,
+        topicMaterial: topic || subject,
       };
     });
 

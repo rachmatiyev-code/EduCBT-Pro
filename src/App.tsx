@@ -379,6 +379,8 @@ export default function App() {
             examSessions={examSessions}
             subjects={subjects}
             classes={classes}
+            schoolProfile={schoolProfile}
+            teachers={teachers}
             onRefreshData={loadInitialData}
             onOpenSessionMonitoring={(sessionCode) => {
               setMonitoredSessionCode(sessionCode);

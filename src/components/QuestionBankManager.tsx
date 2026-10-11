@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FolderArchive,
   Plus,
@@ -23,6 +23,11 @@ import {
   ChevronUp,
   Square,
   CheckSquare,
+  Printer,
+  Upload,
+  Download,
+  FileSpreadsheet,
+  Layers,
 } from 'lucide-react';
 import {
   QuestionBank,
@@ -31,15 +36,21 @@ import {
   ExamSession,
   Subject,
   ClassGroup,
+  SchoolProfile,
+  Teacher,
 } from '../types/cbt';
 import { api } from '../services/api';
 import { AIPromptGeneratorModal } from './AIPromptGeneratorModal';
+import { ExamPrintBlueprintModal } from './ExamPrintBlueprintModal';
+import { QuestionImportExportModal } from './QuestionImportExportModal';
 
 interface QuestionBankManagerProps {
   questionBanks: QuestionBank[];
   examSessions: ExamSession[];
   subjects: Subject[];
   classes: ClassGroup[];
+  schoolProfile?: SchoolProfile;
+  teachers?: Teacher[];
   onRefreshData: () => void;
   onOpenSessionMonitoring?: (sessionCode: string) => void;
 }
@@ -49,6 +60,20 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   examSessions,
   subjects,
   classes,
+  schoolProfile = {
+    regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
+    educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+    name: 'SMP Negeri 5 Percontohan',
+    npsn: '20108922',
+    address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
+    phone: '(021) 7890-1234',
+    email: 'info@sman1prestasibangsa.sch.id',
+    principalName: 'Drs. H. Bambang Sugiarto, M.Pd.',
+    principalNip: '19680512 199403 1 004',
+    academicYear: '2026/2027',
+    semester: 'Ganjil',
+  },
+  teachers = [],
   onRefreshData,
   onOpenSessionMonitoring,
 }) => {
@@ -56,6 +81,23 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   const [selectedBank, setSelectedBank] = useState<QuestionBank | null>(null);
   const [isEditingBank, setIsEditingBank] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+
+  // Print & Blueprint Modal State
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printModalBank, setPrintModalBank] = useState<QuestionBank | null>(null);
+
+  // Import / Export Modal State
+  const [isImportExportModalOpen, setIsImportExportModalOpen] = useState(false);
+
+  // Synchronize selectedBank with questionBanks prop on updates
+  useEffect(() => {
+    if (selectedBank) {
+      const updated = questionBanks.find((b) => b.id === selectedBank.id);
+      if (updated) {
+        setSelectedBank(updated);
+      }
+    }
+  }, [questionBanks]);
 
   // Deploy session modal state
   const [deployModalBank, setDeployModalBank] = useState<QuestionBank | null>(null);
@@ -453,21 +495,49 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => setIsAIModalOpen(true)}
-            className="px-3.5 py-2 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span>AI Generator Soal</span>
-          </button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => {
+                const target = selectedBank || questionBanks[0];
+                if (!target) {
+                  alert('Belum ada bank soal. Buat bank soal terlebih dahulu.');
+                  return;
+                }
+                setPrintModalBank(target);
+                setIsPrintModalOpen(true);
+              }}
+              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+              title="Cetak Naskah Soal & Kisi-Kisi Soal Ujian (Bloom / SOLO)"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak & Kisi-Kisi</span>
+            </button>
 
-          <button
-            onClick={handleCreateNewBank}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Buat Bank Baru</span>
-          </button>
+            <button
+              onClick={() => setIsImportExportModalOpen(true)}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+              title="Impor dan Ekspor Butir Soal (Excel/JSON/TSV)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Impor & Ekspor</span>
+            </button>
+
+            <button
+              onClick={() => setIsAIModalOpen(true)}
+              className="px-3.5 py-2 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+              <span>AI Generator Soal</span>
+            </button>
+
+            <button
+              onClick={handleCreateNewBank}
+              className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Buat Bank Baru</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -594,15 +664,37 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                       setSelectedBank(bank);
                       setIsEditingBank(true);
                     }}
-                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors cursor-pointer"
                     title="Edit butir soal"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
 
                   <button
+                    onClick={() => {
+                      setPrintModalBank(bank);
+                      setIsPrintModalOpen(true);
+                    }}
+                    className="p-2 text-indigo-700 hover:bg-indigo-50 rounded-xl transition-colors cursor-pointer"
+                    title="Cetak Naskah Soal & Kisi-Kisi Ujian (Bloom / SOLO)"
+                  >
+                    <Printer className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectedBank(bank);
+                      setIsImportExportModalOpen(true);
+                    }}
+                    className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
+                    title="Ekspor atau Impor Soal Bank Ini"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+
+                  <button
                     onClick={() => handleDuplicateBank(bank)}
-                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                     title="Duplikasi bank soal"
                   >
                     <Copy className="w-4 h-4" />
@@ -610,7 +702,7 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
 
                   <button
                     onClick={() => handleDeleteBank(bank.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
                     title="Hapus bank soal"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -738,7 +830,28 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  setPrintModalBank(selectedBank);
+                  setIsPrintModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                title="Cetak Naskah Soal & Kisi-Kisi Ujian (Bloom-Anderson / SOLO)"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak & Kisi-Kisi</span>
+              </button>
+
+              <button
+                onClick={() => setIsImportExportModalOpen(true)}
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                title="Impor atau Ekspor Soal ke Excel/JSON"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Impor & Ekspor</span>
+              </button>
+
               <button
                 onClick={() => setIsAIModalOpen(true)}
                 className="px-3 py-1.5 bg-linear-to-r from-indigo-600 to-blue-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs hover:opacity-90 transition-all cursor-pointer"
@@ -1129,9 +1242,14 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                         {idx + 1}
                       </span>
                       <span className="uppercase font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                        {q.type.replace('_', ' ')}
+                        {((q.type || 'multiple_choice') as string).replace(/_/g, ' ')}
                       </span>
-                      <span className="text-slate-600 font-medium">({q.points} Poin)</span>
+                      <span className="text-slate-600 font-medium">({q.points || 10} Poin)</span>
+                      {q.cognitiveLevel && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[10px]">
+                          {q.cognitiveLevel}
+                        </span>
+                      )}
                       {q.media && (
                         <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-semibold flex items-center gap-1">
                           {q.media.type === 'image' && <ImageIcon className="w-3 h-3" />}
@@ -1443,6 +1561,35 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
           selectedBank ? subjects.find((s) => s.id === selectedBank.subjectId)?.name : 'Bahasa Indonesia'
         }
         defaultGrade={selectedBank?.gradeLevel || '12'}
+      />
+
+      {/* Print Exam & Specification Matrix (Kisi-Kisi) Modal */}
+      {printModalBank && (
+        <ExamPrintBlueprintModal
+          isOpen={isPrintModalOpen}
+          onClose={() => {
+            setIsPrintModalOpen(false);
+            setPrintModalBank(null);
+          }}
+          bank={printModalBank}
+          schoolProfile={schoolProfile}
+          teachers={teachers}
+          onRefreshData={onRefreshData}
+        />
+      )}
+
+      {/* Question Import & Export & Template Modal */}
+      <QuestionImportExportModal
+        isOpen={isImportExportModalOpen}
+        onClose={() => setIsImportExportModalOpen(false)}
+        activeBank={selectedBank}
+        allBanks={questionBanks}
+        subjects={subjects}
+        onRefreshData={onRefreshData}
+        onSelectBank={(b) => {
+          setSelectedBank(b);
+          setIsEditingBank(true);
+        }}
       />
     </div>
   );

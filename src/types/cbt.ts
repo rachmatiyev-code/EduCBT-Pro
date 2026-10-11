@@ -29,6 +29,13 @@ export interface QuestionItem {
   explanation?: string;
   points: number;
   media?: QuestionMedia;
+  // Taxonomy & Specification Matrix (Kisi-kisi) Fields
+  cognitiveDomain?: 'bloom' | 'solo';
+  cognitiveLevel?: string; // e.g. "C1", "C2", "C3", "C4", "C5", "C6" OR "Unistructural", "Multistructural", "Relational", "Extended Abstract"
+  competencyIndicator?: string; // Indikator Soal
+  learningObjective?: string; // Capaian Pembelajaran / Kompetensi Dasar
+  topicMaterial?: string; // Materi Pokok
+  difficulty?: 'easy' | 'medium' | 'hard';
 }
 
 export interface QuestionBank {
@@ -41,6 +48,10 @@ export interface QuestionBank {
   durationMinutes: number;
   passingScore: number;
   questions: QuestionItem[];
+  taxonomyType?: 'bloom' | 'solo';
+  curriculum?: string;
+  academicYear?: string;
+  semester?: string;
   createdAt: string;
   updatedAt: string;
 }
