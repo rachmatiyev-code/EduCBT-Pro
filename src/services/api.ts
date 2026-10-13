@@ -65,65 +65,27 @@ export const api = {
           localStorage.setItem('educbt_gas_webhook_url', result.gasWebhookUrl);
         }
 
-        // Cache & merge question banks locally
-        if (result && Array.isArray(result.questionBanks)) {
-          try {
-            const localBanks: QuestionBank[] = JSON.parse(
-              localStorage.getItem('educbt_master_question_banks') || '[]'
-            );
-            const bankMap = new Map<string, QuestionBank>();
-            result.questionBanks.forEach((b: QuestionBank) => bankMap.set(b.id, b));
-            localBanks.forEach((b: QuestionBank) => {
-              if (!bankMap.has(b.id)) {
-                bankMap.set(b.id, b);
-              }
-            });
-            // Guarantee Pendidikan Pancasila bank is present
-            if (!bankMap.has(DEFAULT_PANCASILA_BANK.id)) {
-              bankMap.set(DEFAULT_PANCASILA_BANK.id, DEFAULT_PANCASILA_BANK);
-            }
-            result.questionBanks = Array.from(bankMap.values());
-            localStorage.setItem('educbt_master_question_banks', JSON.stringify(result.questionBanks));
-          } catch {}
-        } else {
+        // Cache question banks locally
+        if (result && Array.isArray(result.questionBanks) && result.questionBanks.length > 0) {
+          localStorage.setItem('educbt_master_question_banks', JSON.stringify(result.questionBanks));
+        } else if (result) {
           try {
             const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
-            if (!localBanks.some((b: any) => b.id === DEFAULT_PANCASILA_BANK.id)) {
-              localBanks.push(DEFAULT_PANCASILA_BANK);
+            if (localBanks.length > 0) {
+              result.questionBanks = localBanks;
             }
-            result.questionBanks = localBanks;
           } catch {}
         }
 
-        // Cache & merge exam sessions locally
-        if (result && Array.isArray(result.examSessions)) {
-          try {
-            const localSessions: ExamSession[] = JSON.parse(
-              localStorage.getItem('educbt_master_exam_sessions') || '[]'
-            );
-            const sessionMap = new Map<string, ExamSession>();
-            result.examSessions.forEach((s: ExamSession) => sessionMap.set(s.id, s));
-            localSessions.forEach((s: ExamSession) => {
-              if (!sessionMap.has(s.id)) {
-                sessionMap.set(s.id, s);
-              }
-            });
-
-            // Ensure at least PP-01 exists if session list is completely empty
-            if (sessionMap.size === 0) {
-              sessionMap.set(DEFAULT_PANCASILA_SESSION.id, DEFAULT_PANCASILA_SESSION);
-            }
-
-            result.examSessions = Array.from(sessionMap.values());
-            localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(result.examSessions));
-          } catch {}
-        } else {
+        // Cache exam sessions locally
+        if (result && Array.isArray(result.examSessions) && result.examSessions.length > 0) {
+          localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(result.examSessions));
+        } else if (result) {
           try {
             const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
-            if (localSessions.length === 0) {
-              localSessions.push(DEFAULT_PANCASILA_SESSION);
+            if (localSessions.length > 0) {
+              result.examSessions = localSessions;
             }
-            result.examSessions = localSessions;
           } catch {}
         }
       } catch (e) {
@@ -280,6 +242,33 @@ export const api = {
     }
   },
 
+  async deleteMultipleQuestionBanks(ids: string[]): Promise<{ success: boolean; message?: string }> {
+    if (!ids || ids.length === 0) return { success: true };
+    try {
+      const cached: QuestionBank[] = JSON.parse(
+        localStorage.getItem('educbt_master_question_banks') || '[]'
+      );
+      const idSet = new Set(ids);
+      const updated = cached.filter((b) => !idSet.has(b.id));
+      localStorage.setItem('educbt_master_question_banks', JSON.stringify(updated));
+    } catch {}
+
+    try {
+      const res = await fetch('/api/data/question-banks/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+
+    // Fallback: delete sequentially
+    await Promise.allSettled(ids.map((id) => this.deleteQuestionBank(id)));
+    return { success: true, message: `${ids.length} bank soal berhasil dihapus.` };
+  },
+
   async getExamSessions(): Promise<ExamSession[]> {
     try {
       const res = await fetch('/api/data/exam-sessions');
@@ -405,6 +394,33 @@ export const api = {
     } catch {
       return { success: true, message: 'Sesi ujian dihapus secara lokal.' };
     }
+  },
+
+  async deleteMultipleExamSessions(ids: string[]): Promise<{ success: boolean; message?: string }> {
+    if (!ids || ids.length === 0) return { success: true };
+    try {
+      const cached: ExamSession[] = JSON.parse(
+        localStorage.getItem('educbt_master_exam_sessions') || '[]'
+      );
+      const idSet = new Set(ids);
+      const updated = cached.filter((s) => !idSet.has(s.id));
+      localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(updated));
+    } catch {}
+
+    try {
+      const res = await fetch('/api/data/exam-sessions/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+
+    // Fallback: delete sequentially
+    await Promise.allSettled(ids.map((id) => this.deleteExamSession(id)));
+    return { success: true, message: `${ids.length} sesi ujian berhasil dihapus.` };
   },
 
   // AI Question Generation Engine with Dual-Engine (Direct Google API & Backend Proxy)

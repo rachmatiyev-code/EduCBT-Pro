@@ -28,6 +28,10 @@ import {
   Download,
   FileSpreadsheet,
   Layers,
+  AlertTriangle,
+  X,
+  KeyRound,
+  Check,
 } from 'lucide-react';
 import {
   QuestionBank,
@@ -98,6 +102,45 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       }
     }
   }, [questionBanks]);
+
+  // Selection State for Question Banks and Exam Sessions
+  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+
+  // Modal for Editing Question Bank Metadata
+  const [editingBankMeta, setEditingBankMeta] = useState<QuestionBank | null>(null);
+  const [editBankTitle, setEditBankTitle] = useState('');
+  const [editBankSubjectId, setEditBankSubjectId] = useState('');
+  const [editBankGrade, setEditBankGrade] = useState('10');
+  const [editBankPassingScore, setEditBankPassingScore] = useState(75);
+  const [editBankDuration, setEditBankDuration] = useState(60);
+  const [editBankCurriculum, setEditBankCurriculum] = useState('Kurikulum Merdeka');
+  const [editBankAcademicYear, setEditBankAcademicYear] = useState('2026/2027');
+  const [editBankSemester, setEditBankSemester] = useState<'Ganjil' | 'Genap'>('Ganjil');
+
+  // Modal for Editing Active Exam Session
+  const [editingSession, setEditingSession] = useState<ExamSession | null>(null);
+  const [editSessionToken, setEditSessionToken] = useState('');
+  const [editSessionTitle, setEditSessionTitle] = useState('');
+  const [editSessionBankId, setEditSessionBankId] = useState('');
+  const [editSessionDuration, setEditSessionDuration] = useState(60);
+  const [editSessionTargetClasses, setEditSessionTargetClasses] = useState<string[]>([]);
+  const [editSessionShuffleQuestions, setEditSessionShuffleQuestions] = useState(false);
+  const [editSessionShuffleOptions, setEditSessionShuffleOptions] = useState(false);
+  const [editSessionShowResult, setEditSessionShowResult] = useState(true);
+  const [editSessionAntiCheat, setEditSessionAntiCheat] = useState(true);
+  const [editSessionMaxTabSwitches, setEditSessionMaxTabSwitches] = useState(3);
+  const [editSessionStatus, setEditSessionStatus] = useState<'active' | 'ended' | 'scheduled'>('active');
+
+  // Delete Confirmation Modal
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: 'bank' | 'session' | 'bulk-banks' | 'bulk-sessions';
+    id?: string;
+    ids?: string[];
+    title?: string;
+    count?: number;
+  } | null>(null);
+  const [isDeletingLoading, setIsDeletingLoading] = useState(false);
 
   // Deploy session modal state
   const [deployModalBank, setDeployModalBank] = useState<QuestionBank | null>(null);
@@ -219,15 +262,21 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     setSelectedBank(bankToSave);
   };
 
-  const handleDeleteBank = async (id: string) => {
-    if (confirm('Yakin ingin menghapus arsip bank soal ini?')) {
-      await api.deleteQuestionBank(id);
-      if (selectedBank?.id === id) {
-        setSelectedBank(null);
-        setIsEditingBank(false);
-      }
-      onRefreshData();
-    }
+  const handleDeleteBank = (id: string, title?: string, count?: number) => {
+    setDeleteConfirm({
+      type: 'bank',
+      id,
+      title: title || 'Bank Soal',
+      count,
+    });
+  };
+
+  const handleDeleteSession = (id: string, title?: string) => {
+    setDeleteConfirm({
+      type: 'session',
+      id,
+      title: title || 'Sesi Ujian',
+    });
   };
 
   const handleDuplicateBank = async (bank: QuestionBank) => {
@@ -480,10 +529,168 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     }
   };
 
-  const handleDeleteSession = async (id: string) => {
-    if (confirm('Hentikan dan hapus sesi ujian ini?')) {
-      await api.deleteExamSession(id);
+  // Selection Handlers - Banks
+  const handleToggleSelectBank = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedBankIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllBanks = () => {
+    if (selectedBankIds.length === questionBanks.length && questionBanks.length > 0) {
+      setSelectedBankIds([]);
+    } else {
+      setSelectedBankIds(questionBanks.map((b) => b.id));
+    }
+  };
+
+  // Selection Handlers - Sessions
+  const handleToggleSelectSession = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedSessionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllSessions = () => {
+    if (selectedSessionIds.length === examSessions.length && examSessions.length > 0) {
+      setSelectedSessionIds([]);
+    } else {
+      setSelectedSessionIds(examSessions.map((s) => s.id));
+    }
+  };
+
+  // Bulk Toggle Sessions Active/Inactive (Ended)
+  const handleBulkToggleSessionsStatus = async () => {
+    if (selectedSessionIds.length === 0) return;
+    const targetSessions = examSessions.filter((s) => selectedSessionIds.includes(s.id));
+    // If all active, set all ended; otherwise set all active
+    const allActive = targetSessions.every((s) => s.status === 'active');
+    const newStatus: 'active' | 'ended' | 'scheduled' = allActive ? 'ended' : 'active';
+    await Promise.all(
+      targetSessions.map((s) =>
+        api.saveExamSession({ ...s, status: newStatus })
+      )
+    );
+    onRefreshData();
+  };
+
+  // Edit Bank Metadata Handlers
+  const handleOpenEditBankMeta = (bank: QuestionBank, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingBankMeta(bank);
+    setEditBankTitle(bank.title || '');
+    setEditBankSubjectId(bank.subjectId || subjects[0]?.id || 'SUB-01');
+    setEditBankGrade(bank.gradeLevel || '10');
+    setEditBankPassingScore(bank.passingScore || 75);
+    setEditBankDuration(bank.durationMinutes || 60);
+    setEditBankCurriculum(bank.curriculum || 'Kurikulum Merdeka');
+    setEditBankAcademicYear(bank.academicYear || schoolProfile?.academicYear || '2026/2027');
+    setEditBankSemester(bank.semester === 'Genap' ? 'Genap' : 'Ganjil');
+  };
+
+  const handleSaveBankMetaForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBankMeta) return;
+    const updatedBank: QuestionBank = {
+      ...editingBankMeta,
+      title: editBankTitle.trim() || editingBankMeta.title,
+      subjectId: editBankSubjectId,
+      gradeLevel: editBankGrade,
+      passingScore: Number(editBankPassingScore) || 75,
+      durationMinutes: Number(editBankDuration) || 60,
+      curriculum: editBankCurriculum,
+      academicYear: editBankAcademicYear,
+      semester: editBankSemester,
+      updatedAt: new Date().toISOString(),
+    };
+    await api.saveQuestionBank(updatedBank);
+    onRefreshData();
+    if (selectedBank?.id === updatedBank.id) {
+      setSelectedBank(updatedBank);
+    }
+    setEditingBankMeta(null);
+  };
+
+  // Edit Exam Session Handlers
+  const handleOpenEditSession = (session: ExamSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingSession(session);
+    setEditSessionToken(session.sessionCode || '');
+    setEditSessionTitle(session.title || '');
+    setEditSessionBankId(session.bankId || questionBanks[0]?.id || '');
+    setEditSessionDuration(session.durationMinutes || 60);
+    setEditSessionTargetClasses(Array.isArray(session.targetClassIds) ? session.targetClassIds : []);
+    setEditSessionShuffleQuestions(Boolean(session.shuffleQuestions));
+    setEditSessionShuffleOptions(Boolean(session.shuffleOptions));
+    setEditSessionShowResult(session.showResultInstant !== false);
+    setEditSessionAntiCheat(session.antiCheatEnabled !== false);
+    setEditSessionMaxTabSwitches(session.maxTabSwitches || 3);
+    setEditSessionStatus(session.status || 'active');
+  };
+
+  const handleSaveEditSessionForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSession) return;
+    const cleanToken = editSessionToken.trim().toUpperCase() || editingSession.sessionCode;
+    const updatedSession: ExamSession = {
+      ...editingSession,
+      sessionCode: cleanToken,
+      title: editSessionTitle.trim() || editingSession.title,
+      bankId: editSessionBankId || editingSession.bankId,
+      durationMinutes: Number(editSessionDuration) || 60,
+      targetClassIds: editSessionTargetClasses,
+      shuffleQuestions: editSessionShuffleQuestions,
+      shuffleOptions: editSessionShuffleOptions,
+      showResultInstant: editSessionShowResult,
+      antiCheatEnabled: editSessionAntiCheat,
+      maxTabSwitches: editSessionMaxTabSwitches,
+      status: editSessionStatus,
+    };
+    await api.saveExamSession(updatedSession);
+    onRefreshData();
+    setEditingSession(null);
+  };
+
+  const handleToggleSessionStatus = async (session: ExamSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const newStatus: 'active' | 'ended' | 'scheduled' = session.status === 'active' ? 'ended' : 'active';
+    const updated: ExamSession = { ...session, status: newStatus };
+    await api.saveExamSession(updated);
+    onRefreshData();
+  };
+
+  // Execute Deletion from Modal
+  const handleConfirmExecuteDelete = async () => {
+    if (!deleteConfirm) return;
+    setIsDeletingLoading(true);
+    try {
+      if (deleteConfirm.type === 'bank' && deleteConfirm.id) {
+        await api.deleteQuestionBank(deleteConfirm.id);
+        if (selectedBank?.id === deleteConfirm.id) {
+          setSelectedBank(null);
+          setIsEditingBank(false);
+        }
+        setSelectedBankIds((prev) => prev.filter((x) => x !== deleteConfirm.id));
+      } else if (deleteConfirm.type === 'bulk-banks' && deleteConfirm.ids) {
+        await api.deleteMultipleQuestionBanks(deleteConfirm.ids);
+        if (selectedBank && deleteConfirm.ids.includes(selectedBank.id)) {
+          setSelectedBank(null);
+          setIsEditingBank(false);
+        }
+        setSelectedBankIds([]);
+      } else if (deleteConfirm.type === 'session' && deleteConfirm.id) {
+        await api.deleteExamSession(deleteConfirm.id);
+        setSelectedSessionIds((prev) => prev.filter((x) => x !== deleteConfirm.id));
+      } else if (deleteConfirm.type === 'bulk-sessions' && deleteConfirm.ids) {
+        await api.deleteMultipleExamSessions(deleteConfirm.ids);
+        setSelectedSessionIds([]);
+      }
       onRefreshData();
+    } finally {
+      setIsDeletingLoading(false);
+      setDeleteConfirm(null);
     }
   };
 
@@ -575,174 +782,360 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
 
       {/* View: Sessions Active List */}
       {activeTab === 'sessions' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {examSessions.length === 0 ? (
-            <div className="col-span-full bg-white p-12 text-center rounded-2xl border border-slate-200">
-              <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <h3 className="font-bold text-slate-700 text-base">Belum Ada Sesi Ujian Aktif</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Buka tab Arsip Bank Soal lalu klik tombol "Deploy Ujian" untuk meluncurkan token ujian bagi siswa.
-              </p>
+        <div className="space-y-4">
+          {/* Action & Selection Bar for Sessions */}
+          {examSessions.length > 0 && (
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleSelectAllSessions}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"
+                >
+                  {selectedSessionIds.length === examSessions.length && examSessions.length > 0 ? (
+                    <CheckSquare className="w-4 h-4 text-indigo-600" />
+                  ) : (
+                    <Square className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span>
+                    {selectedSessionIds.length === examSessions.length && examSessions.length > 0
+                      ? 'Batalkan Semua'
+                      : 'Pilih Semua'}
+                  </span>
+                </button>
+                {selectedSessionIds.length > 0 && (
+                  <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-md">
+                    {selectedSessionIds.length} Sesi Dipilih
+                  </span>
+                )}
+              </div>
+
+              {selectedSessionIds.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkToggleSessionsStatus}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Ubah status aktif / nonaktif untuk semua sesi terpilih"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Ubah Status ({selectedSessionIds.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeleteConfirm({
+                        type: 'bulk-sessions',
+                        ids: selectedSessionIds,
+                        count: selectedSessionIds.length,
+                      })
+                    }
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Hapus Terpilih ({selectedSessionIds.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSessionIds([])}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer ml-1"
+                  >
+                    Batal
+                  </button>
+                </div>
+              )}
             </div>
-          ) : (
-            examSessions.map((ses) => {
-              const bank = questionBanks.find((b) => b.id === ses.bankId);
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {examSessions.length === 0 ? (
+              <div className="col-span-full bg-white p-12 text-center rounded-2xl border border-slate-200">
+                <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="font-bold text-slate-700 text-base">Belum Ada Sesi Ujian Aktif</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Buka tab Arsip Bank Soal lalu klik tombol "Deploy Ujian" untuk meluncurkan token ujian bagi siswa.
+                </p>
+              </div>
+            ) : (
+              examSessions.map((ses) => {
+                const bank = questionBanks.find((b) => b.id === ses.bankId);
+                const isSelected = selectedSessionIds.includes(ses.id);
+                return (
+                  <div
+                    key={ses.id}
+                    className={`rounded-2xl border p-5 shadow-xs transition-all flex flex-col justify-between space-y-4 ${
+                      isSelected
+                        ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/20'
+                        : 'border-slate-200 bg-white hover:border-indigo-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleSelectSession(ses.id, e)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
+                            title="Pilih sesi ujian ini"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-indigo-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-400" />
+                            )}
+                          </button>
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold text-xs rounded-lg tracking-wider">
+                            TOKEN: {ses.sessionCode}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleSessionStatus(ses, e)}
+                          title="Klik untuk mengubah status sesi"
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase cursor-pointer transition-all ${
+                            ses.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                              : ses.status === 'scheduled'
+                              ? 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {ses.status === 'active' ? 'Aktif' : ses.status === 'ended' ? 'Berakhir' : 'Terjadwal'}
+                        </button>
+                      </div>
+
+                      <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{ses.title}</h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {bank ? bank.title : 'Bank Soal Tidak Ditemukan'} • {bank?.totalQuestions || 0} Soal • Durasi: {ses.durationMinutes} Menit
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                        {ses.antiCheatEnabled && (
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-md border border-amber-200 flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3" /> Anti-Curang
+                          </span>
+                        )}
+                        {ses.shuffleQuestions && (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md flex items-center gap-1">
+                            <Shuffle className="w-3 h-3" /> Acak Soal
+                          </span>
+                        )}
+                        {ses.showResultInstant && (
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md">Skor Instan</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => onOpenSessionMonitoring && onOpenSessionMonitoring(ses.sessionCode)}
+                        className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Live Monitoring</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => handleOpenEditSession(ses, e)}
+                        className="p-2 text-indigo-700 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                        title="Edit pengaturan sesi & token"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteSession(ses.id, `${ses.sessionCode} - ${ses.title}`)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                        title="Hapus sesi ujian"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* View: Bank Soal List (when no bank is selected for editing) */}
+      {activeTab === 'banks' && !selectedBank && (
+        <div className="space-y-4">
+          {/* Action & Selection Bar for Question Banks */}
+          {questionBanks.length > 0 && (
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleSelectAllBanks}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"
+                >
+                  {selectedBankIds.length === questionBanks.length && questionBanks.length > 0 ? (
+                    <CheckSquare className="w-4 h-4 text-indigo-600" />
+                  ) : (
+                    <Square className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span>
+                    {selectedBankIds.length === questionBanks.length && questionBanks.length > 0
+                      ? 'Batalkan Semua'
+                      : 'Pilih Semua'}
+                  </span>
+                </button>
+                {selectedBankIds.length > 0 && (
+                  <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-md">
+                    {selectedBankIds.length} Bank Soal Dipilih
+                  </span>
+                )}
+              </div>
+
+              {selectedBankIds.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeleteConfirm({
+                        type: 'bulk-banks',
+                        ids: selectedBankIds,
+                        count: selectedBankIds.length,
+                      })
+                    }
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Hapus Terpilih ({selectedBankIds.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBankIds([])}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer ml-1"
+                  >
+                    Batal
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {questionBanks.map((bank) => {
+              const subject = subjects.find((s) => s.id === bank.subjectId);
+              const isSelected = selectedBankIds.includes(bank.id);
               return (
                 <div
-                  key={ses.id}
-                  className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:border-indigo-300 transition-all flex flex-col justify-between space-y-4"
+                  key={bank.id}
+                  className={`rounded-2xl border p-5 shadow-xs transition-all flex flex-col justify-between space-y-4 ${
+                    isSelected
+                      ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/20'
+                      : 'border-slate-200 bg-white hover:border-indigo-300'
+                  }`}
                 >
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold text-xs rounded-lg tracking-wider">
-                        TOKEN: {ses.sessionCode}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          ses.status === 'active' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {ses.status}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleSelectBank(bank.id, e)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
+                          title="Pilih bank soal ini"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-indigo-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400" />
+                          )}
+                        </button>
+                        <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-semibold text-xs rounded-md">
+                          {subject?.name || 'Mata Pelajaran'} • Kls {bank.gradeLevel}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-600 font-mono">
+                        KKM: {bank.passingScore}
                       </span>
                     </div>
 
-                    <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{ses.title}</h4>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {bank?.totalQuestions || 0} Soal • Durasi: {ses.durationMinutes} Menit
+                    <h3 className="font-bold text-slate-800 text-sm line-clamp-2 leading-snug">{bank.title}</h3>
+                    <p className="text-xs text-slate-600 mt-2 flex items-center gap-2">
+                      <FileText className="w-3.5 h-3.5 text-slate-600" />
+                      <span>{bank.questions?.length || 0} Butir Soal</span>
+                      <span>•</span>
+                      <Clock className="w-3.5 h-3.5 text-slate-600" />
+                      <span>{bank.durationMinutes} Menit</span>
                     </p>
-
-                    <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
-                      {ses.antiCheatEnabled && (
-                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-md border border-amber-200 flex items-center gap-1">
-                          <ShieldAlert className="w-3 h-3" /> Anti-Curang
-                        </span>
-                      )}
-                      {ses.shuffleQuestions && (
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md flex items-center gap-1">
-                          <Shuffle className="w-3 h-3" /> Acak Soal
-                        </span>
-                      )}
-                      {ses.showResultInstant && (
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md">Skor Instan</span>
-                      )}
-                    </div>
                   </div>
 
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap">
                     <button
-                      onClick={() => onOpenSessionMonitoring && onOpenSessionMonitoring(ses.sessionCode)}
-                      className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      onClick={() => handleOpenDeployModal(bank)}
+                      className="flex-1 min-w-[100px] py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
+                      title="Deploy sesi ujian dengan token"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Live Monitoring</span>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Deploy Ujian</span>
                     </button>
+
                     <button
-                      onClick={() => handleDeleteSession(ses.id)}
-                      className="p-2 text-slate-400 hover:text-red-600 rounded-xl hover:bg-red-50 transition-colors"
-                      title="Hentikan sesi"
+                      onClick={(e) => handleOpenEditBankMeta(bank, e)}
+                      className="p-2 text-indigo-700 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Edit Arsip & Metadata (Judul, Mapel, KKM, Durasi, dsb)"
+                    >
+                      <Sliders className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedBank(bank);
+                        setIsEditingBank(true);
+                      }}
+                      className="p-2 text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Edit butir-butir soal"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setPrintModalBank(bank);
+                        setIsPrintModalOpen(true);
+                      }}
+                      className="p-2 text-indigo-700 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Cetak Naskah Soal & Kisi-Kisi Ujian (Bloom / SOLO)"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedBank(bank);
+                        setIsImportExportModalOpen(true);
+                      }}
+                      className="p-2 text-emerald-700 hover:bg-emerald-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Ekspor atau Impor Soal Bank Ini"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDuplicateBank(bank)}
+                      className="p-2 text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Duplikasi bank soal"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteBank(bank.id, bank.title, bank.questions?.length)}
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                      title="Hapus bank soal"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               );
-            })
-          )}
-        </div>
-      )}
-
-      {/* View: Bank Soal List (when no bank is selected for editing) */}
-      {activeTab === 'banks' && !selectedBank && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {questionBanks.map((bank) => {
-            const subject = subjects.find((s) => s.id === bank.subjectId);
-            return (
-              <div
-                key={bank.id}
-                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:border-indigo-300 transition-all flex flex-col justify-between space-y-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-semibold text-xs rounded-md">
-                      {subject?.name || 'Mata Pelajaran'} • Kls {bank.gradeLevel}
-                    </span>
-                    <span className="text-xs text-slate-600 font-mono">
-                      KKM: {bank.passingScore}
-                    </span>
-                  </div>
-
-                  <h3 className="font-bold text-slate-800 text-sm line-clamp-2 leading-snug">{bank.title}</h3>
-                  <p className="text-xs text-slate-600 mt-2 flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{bank.questions?.length || 0} Butir Soal</span>
-                    <span>•</span>
-                    <Clock className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{bank.durationMinutes} Menit</span>
-                  </p>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-1.5">
-                  <button
-                    onClick={() => handleOpenDeployModal(bank)}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
-                    title="Deploy sesi ujian dengan token"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Deploy Ujian</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSelectedBank(bank);
-                      setIsEditingBank(true);
-                    }}
-                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors cursor-pointer"
-                    title="Edit butir soal"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setPrintModalBank(bank);
-                      setIsPrintModalOpen(true);
-                    }}
-                    className="p-2 text-indigo-700 hover:bg-indigo-50 rounded-xl transition-colors cursor-pointer"
-                    title="Cetak Naskah Soal & Kisi-Kisi Ujian (Bloom / SOLO)"
-                  >
-                    <Printer className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSelectedBank(bank);
-                      setIsImportExportModalOpen(true);
-                    }}
-                    className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
-                    title="Ekspor atau Impor Soal Bank Ini"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => handleDuplicateBank(bank)}
-                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-                    title="Duplikasi bank soal"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => handleDeleteBank(bank.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                    title="Hapus bank soal"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
       )}
 
@@ -1648,19 +2041,452 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
         />
       )}
 
-      {/* Question Import & Export & Template Modal */}
-      <QuestionImportExportModal
-        isOpen={isImportExportModalOpen}
-        onClose={() => setIsImportExportModalOpen(false)}
-        activeBank={selectedBank}
-        allBanks={questionBanks}
-        subjects={subjects}
-        onRefreshData={onRefreshData}
-        onSelectBank={(b) => {
-          setSelectedBank(b);
-          setIsEditingBank(true);
-        }}
-      />
+      {/* Modal: Edit Arsip Bank Soal Metadata */}
+      {editingBankMeta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Edit Arsip Bank Soal</h3>
+                  <p className="text-xs text-slate-500">ID: {editingBankMeta.id} • {editingBankMeta.questions?.length || 0} butir soal</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingBankMeta(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBankMetaForm} className="p-6 overflow-y-auto space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Judul Bank Soal *</label>
+                <input
+                  type="text"
+                  required
+                  value={editBankTitle}
+                  onChange={(e) => setEditBankTitle(e.target.value)}
+                  placeholder="Contoh: Penilaian Sumatif Akhir Semester - Bahasa Indonesia"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Mata Pelajaran *</label>
+                  <select
+                    value={editBankSubjectId}
+                    onChange={(e) => setEditBankSubjectId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs bg-white"
+                  >
+                    {subjects.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name} ({sub.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Tingkat Kelas *</label>
+                  <select
+                    value={editBankGrade}
+                    onChange={(e) => setEditBankGrade(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs bg-white"
+                  >
+                    <option value="7">Kelas 7 (SMP / MTs)</option>
+                    <option value="8">Kelas 8 (SMP / MTs)</option>
+                    <option value="9">Kelas 9 (SMP / MTs)</option>
+                    <option value="10">Kelas 10 (SMA / SMK)</option>
+                    <option value="11">Kelas 11 (SMA / SMK)</option>
+                    <option value="12">Kelas 12 (SMA / SMK)</option>
+                    <option value="Semua">Semua Tingkat</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">KKM / Nilai Ketuntasan Minimal</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={editBankPassingScore}
+                    onChange={(e) => setEditBankPassingScore(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Durasi Default Pengerjaan (Menit)</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="300"
+                    value={editBankDuration}
+                    onChange={(e) => setEditBankDuration(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Kurikulum</label>
+                  <input
+                    type="text"
+                    value={editBankCurriculum}
+                    onChange={(e) => setEditBankCurriculum(e.target.value)}
+                    placeholder="Kurikulum Merdeka"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Tahun Ajaran</label>
+                  <input
+                    type="text"
+                    value={editBankAcademicYear}
+                    onChange={(e) => setEditBankAcademicYear(e.target.value)}
+                    placeholder="2026/2027"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Semester</label>
+                  <select
+                    value={editBankSemester}
+                    onChange={(e) => setEditBankSemester(e.target.value as 'Ganjil' | 'Genap')}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs bg-white"
+                  >
+                    <option value="Ganjil">Ganjil</option>
+                    <option value="Genap">Genap</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingBankMeta(null)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+                >
+                  Simpan Perubahan Arsip
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Sesi Ujian Aktif & Token */}
+      {editingSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                  <Play className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Edit Pengaturan Sesi Ujian</h3>
+                  <p className="text-xs text-slate-500">ID: {editingSession.id} • Token: {editingSession.sessionCode}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSession(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditSessionForm} className="p-6 overflow-y-auto space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Token Sesi Ujian *</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={editSessionToken}
+                      onChange={(e) => setEditSessionToken(e.target.value.toUpperCase())}
+                      placeholder="CBT-2026"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-bold text-indigo-700 uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditSessionToken('CBT-' + Math.floor(1000 + Math.random() * 9000))}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
+                      title="Acak token baru"
+                    >
+                      Acak
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Status Sesi *</label>
+                  <select
+                    value={editSessionStatus}
+                    onChange={(e) => setEditSessionStatus(e.target.value as 'active' | 'ended' | 'scheduled')}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs bg-white font-semibold"
+                  >
+                    <option value="active">Aktif (Siswa Dapat Mengerjakan)</option>
+                    <option value="scheduled">Terjadwal (Belum Dibuka)</option>
+                    <option value="ended">Berakhir (Selesai / Ditutup)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Judul Sesi Ujian *</label>
+                <input
+                  type="text"
+                  required
+                  value={editSessionTitle}
+                  onChange={(e) => setEditSessionTitle(e.target.value)}
+                  placeholder="Contoh: Penilaian Sumatif Akhir Semester"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Bank Soal Terhubung *</label>
+                  <select
+                    value={editSessionBankId}
+                    onChange={(e) => setEditSessionBankId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs bg-white"
+                  >
+                    {questionBanks.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.title} ({b.questions?.length || 0} Soal)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Durasi Pengerjaan (Menit) *</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="300"
+                    required
+                    value={editSessionDuration}
+                    onChange={(e) => setEditSessionDuration(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Target Kelas Peserta Ujian</label>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                  {classes.length === 0 ? (
+                    <span className="text-slate-400 italic">Semua kelas dapat mengikuti (bebas kelas)</span>
+                  ) : (
+                    classes.map((cls) => {
+                      const isChecked = editSessionTargetClasses.includes(cls.id);
+                      return (
+                        <label
+                          key={cls.id}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                            isChecked
+                              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                              : 'bg-white border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditSessionTargetClasses([...editSessionTargetClasses, cls.id]);
+                              } else {
+                                setEditSessionTargetClasses(editSessionTargetClasses.filter((id) => id !== cls.id));
+                              }
+                            }}
+                            className="w-3.5 h-3.5 accent-indigo-600 rounded"
+                          />
+                          <span>{cls.name}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Security & Display Settings */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div className="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5">
+                  Pengaturan Keamanan & Tampilan Soal
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-slate-800">Mode Anti-Curang (Proctoring)</span>
+                    <p className="text-[11px] text-slate-500">Peringatkan dan batasi perpindahan tab / keluar jendela</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={editSessionAntiCheat}
+                    onChange={(e) => setEditSessionAntiCheat(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                {editSessionAntiCheat && (
+                  <div className="flex items-center justify-between pl-4 border-l-2 border-indigo-200">
+                    <span className="text-xs text-slate-600">Maksimal Peringatan Pindah Tab:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={editSessionMaxTabSwitches}
+                      onChange={(e) => setEditSessionMaxTabSwitches(Number(e.target.value))}
+                      className="w-16 px-2 py-1 rounded-lg border border-slate-300 text-center text-xs"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-slate-800">Acak Urutan Soal</span>
+                    <p className="text-[11px] text-slate-500">Nomor soal diacak berbeda untuk setiap siswa</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={editSessionShuffleQuestions}
+                    onChange={(e) => setEditSessionShuffleQuestions(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-slate-800">Acak Pilihan Ganda</span>
+                    <p className="text-[11px] text-slate-500">Opsi jawaban A, B, C, D diacak bagi setiap siswa</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={editSessionShuffleOptions}
+                    onChange={(e) => setEditSessionShuffleOptions(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-slate-800">Tampilkan Nilai Instan</span>
+                    <p className="text-[11px] text-slate-500">Siswa langsung melihat nilai dan ketuntasan setelah kirim</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={editSessionShowResult}
+                    onChange={(e) => setEditSessionShowResult(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSession(null)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+                >
+                  Simpan Pengaturan Sesi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Konfirmasi Hapus Data (Bank Soal / Sesi) */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden p-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 text-red-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="font-bold text-slate-800 text-base">Konfirmasi Hapus Data</h3>
+              <p className="text-xs text-slate-600 mt-2">
+                {deleteConfirm.type === 'bank' && (
+                  <>
+                    Apakah Anda yakin ingin menghapus arsip bank soal <strong className="text-slate-900">"{deleteConfirm.title}"</strong>?
+                    {deleteConfirm.count !== undefined && (
+                      <span className="block mt-1 text-red-600 font-semibold">
+                        Semua {deleteConfirm.count} butir soal di dalamnya akan dihapus.
+                      </span>
+                    )}
+                  </>
+                )}
+                {deleteConfirm.type === 'bulk-banks' && (
+                  <>
+                    Apakah Anda yakin ingin menghapus <strong className="text-slate-900">{deleteConfirm.count} arsip bank soal</strong> yang dipilih secara permanen?
+                  </>
+                )}
+                {deleteConfirm.type === 'session' && (
+                  <>
+                    Apakah Anda yakin ingin menghapus sesi ujian <strong className="text-slate-900">"{deleteConfirm.title}"</strong>? Siswa tidak akan dapat mengakses token ini lagi.
+                  </>
+                )}
+                {deleteConfirm.type === 'bulk-sessions' && (
+                  <>
+                    Apakah Anda yakin ingin menghapus <strong className="text-slate-900">{deleteConfirm.count} sesi ujian terpilih</strong> secara permanen?
+                  </>
+                )}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={isDeletingLoading}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExecuteDelete}
+                disabled={isDeletingLoading}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingLoading ? 'Menghapus...' : 'Ya, Hapus Sekarang'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

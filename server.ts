@@ -895,6 +895,22 @@ app.delete('/api/data/question-banks/:id', (req, res) => {
   }
 });
 
+app.post('/api/data/question-banks/batch-delete', (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (Array.isArray(ids) && Array.isArray(examDataStore.questionBanks)) {
+      const idSet = new Set(ids);
+      examDataStore.questionBanks = examDataStore.questionBanks.filter((b) => !idSet.has(b.id));
+      saveDataStore();
+      syncToGasWebhook('backupAllData', { payload: examDataStore });
+      return res.json({ success: true, message: `${ids.length} bank soal berhasil dihapus.` });
+    }
+    return res.status(400).json({ success: false, error: 'Daftar ID tidak valid.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menghapus bank soal massal' });
+  }
+});
+
 app.get('/api/data/exam-sessions', (req, res) => {
   return res.json({ success: true, examSessions: examDataStore.examSessions });
 });
@@ -946,6 +962,22 @@ app.delete('/api/data/exam-sessions/:id', (req, res) => {
     return res.json({ success: true, message: 'Sesi ujian berhasil dihapus.' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Gagal menghapus sesi ujian' });
+  }
+});
+
+app.post('/api/data/exam-sessions/batch-delete', (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (Array.isArray(ids) && Array.isArray(examDataStore.examSessions)) {
+      const idSet = new Set(ids);
+      examDataStore.examSessions = examDataStore.examSessions.filter((s) => !idSet.has(s.id));
+      saveDataStore();
+      syncToGasWebhook('backupAllData', { payload: examDataStore });
+      return res.json({ success: true, message: `${ids.length} sesi ujian berhasil dihapus.` });
+    }
+    return res.status(400).json({ success: false, error: 'Daftar ID tidak valid.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Gagal menghapus sesi ujian massal' });
   }
 });
 
