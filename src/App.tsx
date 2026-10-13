@@ -207,7 +207,22 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  // 1. If not logged in, show Multi-Level Login Modal
+  // 1. If not logged in and still loading initial data from database, show clean loader
+  if (!currentUser && isLoadingData) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-900 via-indigo-950 to-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 p-8 rounded-2xl flex flex-col items-center gap-4 text-white shadow-2xl max-w-sm text-center">
+          <div className="w-10 h-10 rounded-full border-3 border-indigo-400 border-t-transparent animate-spin" />
+          <div>
+            <h3 className="font-bold text-base text-slate-100">Memuat Database EduCBT...</h3>
+            <p className="text-xs text-slate-300 mt-1">Mengambil profil sekolah, akun pendidik, dan sesi ujian aktif dari server</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. If not logged in, show Multi-Level Login Modal
   if (!currentUser) {
     return (
       <LoginModal
@@ -423,11 +438,12 @@ export default function App() {
         {activeMenu === 'monitoring' && (
           <LiveProctoringMonitor
             session={
-              activeSessionForMonitor || {
-                id: 'SES-001',
-                bankId: 'BANK-001',
-                sessionCode: 'CBT-2026',
-                title: 'Sesi Ujian Aktif',
+              activeSessionForMonitor ||
+              examSessions[0] || {
+                id: 'SES-EMPTY',
+                bankId: '',
+                sessionCode: '-',
+                title: 'Belum Ada Sesi Ujian Aktif',
                 targetClassIds: [],
                 startTime: '',
                 endTime: '',
@@ -437,7 +453,7 @@ export default function App() {
                 showResultInstant: true,
                 antiCheatEnabled: true,
                 maxTabSwitches: 3,
-                status: 'active',
+                status: 'inactive',
               }
             }
             allSessions={examSessions}

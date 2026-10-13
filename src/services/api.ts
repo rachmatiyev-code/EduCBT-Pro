@@ -108,18 +108,10 @@ export const api = {
                 sessionMap.set(s.id, s);
               }
             });
-            // Guarantee PP-01 and CBT-2026 sessions are always active
-            const hasPP01 = Array.from(sessionMap.values()).some(
-              (s) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01'
-            );
-            if (!hasPP01) {
+
+            // Ensure at least PP-01 exists if session list is completely empty
+            if (sessionMap.size === 0) {
               sessionMap.set(DEFAULT_PANCASILA_SESSION.id, DEFAULT_PANCASILA_SESSION);
-            }
-            const hasCBT = Array.from(sessionMap.values()).some(
-              (s) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026'
-            );
-            if (!hasCBT) {
-              sessionMap.set(DEFAULT_SIMULASI_SESSION.id, DEFAULT_SIMULASI_SESSION);
             }
 
             result.examSessions = Array.from(sessionMap.values());
@@ -128,11 +120,8 @@ export const api = {
         } else {
           try {
             const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
-            if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+            if (localSessions.length === 0) {
               localSessions.push(DEFAULT_PANCASILA_SESSION);
-            }
-            if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026')) {
-              localSessions.push(DEFAULT_SIMULASI_SESSION);
             }
             result.examSessions = localSessions;
           } catch {}
@@ -152,15 +141,12 @@ export const api = {
         const localProfile = JSON.parse(localStorage.getItem('educbt_school_profile') || 'null');
         const localGas = localStorage.getItem('educbt_gas_webhook_url') || '';
         const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
-        if (!localBanks.some((b: any) => b.id === DEFAULT_PANCASILA_BANK.id)) {
+        if (localBanks.length === 0) {
           localBanks.push(DEFAULT_PANCASILA_BANK);
         }
         const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
-        if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+        if (localSessions.length === 0) {
           localSessions.push(DEFAULT_PANCASILA_SESSION);
-        }
-        if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026')) {
-          localSessions.push(DEFAULT_SIMULASI_SESSION);
         }
         return {
           schoolProfile: localProfile,
@@ -315,7 +301,7 @@ export const api = {
       }
     } catch {}
 
-    return [DEFAULT_PANCASILA_SESSION, DEFAULT_SIMULASI_SESSION];
+    return [DEFAULT_PANCASILA_SESSION];
   },
 
   async validateExamSessionToken(token: string): Promise<ExamSession | null> {
@@ -343,12 +329,9 @@ export const api = {
       if (match) return match;
     } catch {}
 
-    // 3. Fallback for built-in tokens
+    // 3. Fallback for built-in Pancasila token
     if (clean === 'PP-01' || cleanNorm === 'PP01' || clean.includes('PANCASILA')) {
       return DEFAULT_PANCASILA_SESSION;
-    }
-    if (clean === 'CBT-2026' || cleanNorm === 'CBT2026') {
-      return DEFAULT_SIMULASI_SESSION;
     }
 
     return null;

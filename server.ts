@@ -52,7 +52,7 @@ let examDataStore: {
   schoolProfile: {
     regionalGovernment: 'PEMERINTAH DAERAH PROVINSI DKI JAKARTA',
     educationDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
-    name: 'SMA Negeri 1 Prestasi Bangsa',
+    name: 'SMP Negeri 5 Percontohan',
     npsn: '20108922',
     address: 'Jl. Pendidikan Merdeka No. 45, Jakarta Pusat',
     phone: '(021) 7890-1234',
@@ -139,16 +139,6 @@ function loadDataStore() {
         if (Array.isArray(parsed.students) && parsed.students.length > 0) {
           examDataStore.students = parsed.students;
         }
-        // Always guarantee test student with NISN "1" is present
-        if (!examDataStore.students.some((s) => String(s.nisn).trim() === '1')) {
-          examDataStore.students.unshift({
-            id: 'STD-000',
-            nisn: '1',
-            name: 'Siswa Percobaan (NISN 1)',
-            classId: 'CLS-12A',
-            gender: 'L',
-          });
-        }
         if (Array.isArray(parsed.classes) && parsed.classes.length > 0) {
           examDataStore.classes = parsed.classes;
         }
@@ -227,11 +217,11 @@ function syncToGasWebhook(action: string, payload: any) {
 // Initial load
 loadDataStore();
 
-// Seed an initial ready-to-test bank soal and session if empty
+// Seed initial bank only if questionBanks is completely empty
 const initialBankId = 'BANK-001';
 const initialSessionId = 'SES-001';
 
-if (!examDataStore.questionBanks.some((b) => b.id === initialBankId)) {
+if (examDataStore.questionBanks.length === 0) {
   examDataStore.questionBanks.push({
     id: initialBankId,
     title: 'Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi',
@@ -317,7 +307,7 @@ if (!examDataStore.questionBanks.some((b) => b.id === initialBankId)) {
   });
 }
 
-if (!examDataStore.examSessions.some((s) => s.id === initialSessionId)) {
+if (examDataStore.examSessions.length === 0) {
   examDataStore.examSessions.push({
     id: initialSessionId,
     bankId: initialBankId,

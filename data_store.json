@@ -96,13 +96,6 @@
   ],
   "students": [
     {
-      "id": "STD-000",
-      "nisn": "1",
-      "name": "Siswa Percobaan (NISN 1)",
-      "classId": "CLS-12A",
-      "gender": "L"
-    },
-    {
       "id": "STD-SD001",
       "nisn": "0151234001",
       "name": "Aisyah Putri Ramadhani",
@@ -467,24 +460,6 @@
     }
   ],
   "examSessions": [
-    {
-      "id": "SES-001",
-      "bankId": "BANK-001",
-      "sessionCode": "CBT-2026",
-      "title": "Penilaian Sumatif Akhir Semester - Bahasa Indonesia & Literasi",
-      "targetClassIds": [
-        "CLS-12A"
-      ],
-      "startTime": "2026-10-10T10:00:56.676Z",
-      "endTime": "2026-10-11T11:00:56.676Z",
-      "durationMinutes": 45,
-      "shuffleQuestions": false,
-      "shuffleOptions": false,
-      "showResultInstant": true,
-      "antiCheatEnabled": true,
-      "maxTabSwitches": 3,
-      "status": "active"
-    },
     {
       "title": "Ujian Uji Coba",
       "bankId": "BANK-001",
