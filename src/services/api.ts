@@ -12,6 +12,11 @@ import {
   QuestionType,
   ItemAnalysisResult,
 } from '../types/cbt';
+import {
+  DEFAULT_PANCASILA_BANK,
+  DEFAULT_PANCASILA_SESSION,
+  DEFAULT_SIMULASI_SESSION,
+} from '../data/pancasilaData';
 
 export const api = {
   async fetchAllData() {
@@ -73,12 +78,19 @@ export const api = {
                 bankMap.set(b.id, b);
               }
             });
+            // Guarantee Pendidikan Pancasila bank is present
+            if (!bankMap.has(DEFAULT_PANCASILA_BANK.id)) {
+              bankMap.set(DEFAULT_PANCASILA_BANK.id, DEFAULT_PANCASILA_BANK);
+            }
             result.questionBanks = Array.from(bankMap.values());
             localStorage.setItem('educbt_master_question_banks', JSON.stringify(result.questionBanks));
           } catch {}
         } else {
           try {
             const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
+            if (!localBanks.some((b: any) => b.id === DEFAULT_PANCASILA_BANK.id)) {
+              localBanks.push(DEFAULT_PANCASILA_BANK);
+            }
             result.questionBanks = localBanks;
           } catch {}
         }
@@ -96,12 +108,32 @@ export const api = {
                 sessionMap.set(s.id, s);
               }
             });
+            // Guarantee PP-01 and CBT-2026 sessions are always active
+            const hasPP01 = Array.from(sessionMap.values()).some(
+              (s) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01'
+            );
+            if (!hasPP01) {
+              sessionMap.set(DEFAULT_PANCASILA_SESSION.id, DEFAULT_PANCASILA_SESSION);
+            }
+            const hasCBT = Array.from(sessionMap.values()).some(
+              (s) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026'
+            );
+            if (!hasCBT) {
+              sessionMap.set(DEFAULT_SIMULASI_SESSION.id, DEFAULT_SIMULASI_SESSION);
+            }
+
             result.examSessions = Array.from(sessionMap.values());
             localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(result.examSessions));
           } catch {}
         } else {
           try {
             const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
+            if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+              localSessions.push(DEFAULT_PANCASILA_SESSION);
+            }
+            if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026')) {
+              localSessions.push(DEFAULT_SIMULASI_SESSION);
+            }
             result.examSessions = localSessions;
           } catch {}
         }
@@ -120,7 +152,16 @@ export const api = {
         const localProfile = JSON.parse(localStorage.getItem('educbt_school_profile') || 'null');
         const localGas = localStorage.getItem('educbt_gas_webhook_url') || '';
         const localBanks = JSON.parse(localStorage.getItem('educbt_master_question_banks') || '[]');
+        if (!localBanks.some((b: any) => b.id === DEFAULT_PANCASILA_BANK.id)) {
+          localBanks.push(DEFAULT_PANCASILA_BANK);
+        }
         const localSessions = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
+        if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+          localSessions.push(DEFAULT_PANCASILA_SESSION);
+        }
+        if (!localSessions.some((s: any) => String(s.sessionCode || '').trim().toUpperCase() === 'CBT-2026')) {
+          localSessions.push(DEFAULT_SIMULASI_SESSION);
+        }
         return {
           schoolProfile: localProfile,
           teachers: localTeachers,
@@ -253,6 +294,66 @@ export const api = {
     }
   },
 
+  async getExamSessions(): Promise<ExamSession[]> {
+    try {
+      const res = await fetch('/api/data/exam-sessions');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.examSessions)) {
+          // Cache locally
+          localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(data.examSessions));
+          return data.examSessions;
+        }
+      }
+    } catch {}
+
+    // Fallback to localStorage or defaults
+    try {
+      const local = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
+      if (Array.isArray(local) && local.length > 0) {
+        return local;
+      }
+    } catch {}
+
+    return [DEFAULT_PANCASILA_SESSION, DEFAULT_SIMULASI_SESSION];
+  },
+
+  async validateExamSessionToken(token: string): Promise<ExamSession | null> {
+    const clean = (token || '').trim().toUpperCase();
+    const cleanNorm = clean.replace(/[-\s]/g, '');
+
+    // 1. Direct API check
+    try {
+      const res = await fetch(`/api/data/exam-sessions/check/${encodeURIComponent(clean)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.session) {
+          return data.session;
+        }
+      }
+    } catch {}
+
+    // 2. Fetch all fresh sessions
+    try {
+      const sessions = await this.getExamSessions();
+      const match = sessions.find((s) => {
+        const sc = (s.sessionCode || '').trim().toUpperCase();
+        return sc === clean || sc.replace(/[-\s]/g, '') === cleanNorm;
+      });
+      if (match) return match;
+    } catch {}
+
+    // 3. Fallback for built-in tokens
+    if (clean === 'PP-01' || cleanNorm === 'PP01' || clean.includes('PANCASILA')) {
+      return DEFAULT_PANCASILA_SESSION;
+    }
+    if (clean === 'CBT-2026' || cleanNorm === 'CBT2026') {
+      return DEFAULT_SIMULASI_SESSION;
+    }
+
+    return null;
+  },
+
   async saveExamSession(session: ExamSession): Promise<{ success: boolean; session: ExamSession; message?: string }> {
     // 1. Immediately persist to localStorage for instant, zero-loss offline availability
     try {
@@ -266,6 +367,15 @@ export const api = {
         cached.push(session);
       }
       localStorage.setItem('educbt_master_exam_sessions', JSON.stringify(cached));
+
+      // Broadcast across tabs/windows
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        try {
+          const bc = new BroadcastChannel('educbt_session_channel');
+          bc.postMessage({ type: 'SESSION_SAVED', session });
+          bc.close();
+        } catch {}
+      }
     } catch {}
 
     // 2. Sync to backend API safely without unhandled JSON parsing errors

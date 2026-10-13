@@ -23,6 +23,10 @@ import {
 } from 'lucide-react';
 import { Teacher, Student, ExamSession, SchoolProfile } from '../types/cbt';
 import { api } from '../services/api';
+import {
+  DEFAULT_PANCASILA_SESSION,
+  DEFAULT_SIMULASI_SESSION,
+} from '../data/pancasilaData';
 
 interface LoginModalProps {
   schoolProfile?: SchoolProfile;
@@ -33,6 +37,7 @@ interface LoginModalProps {
   onLoginStudent: (student: Student, session: ExamSession) => void;
   onAddTeacher?: (newTeacher: Teacher) => void;
   onTeacherPasswordChanged?: (updatedTeacher: Teacher) => void;
+  onRefreshData?: () => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -44,6 +49,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onLoginStudent,
   onAddTeacher,
   onTeacherPasswordChanged,
+  onRefreshData,
 }) => {
   // Read URL query params (e.g. ?role=student or ?token=CBT-2026 or ?nisn=1)
   const [urlParams] = useState(() => new URLSearchParams(window.location.search));
@@ -59,10 +65,83 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   // Student login fields
   const [nisn, setNisn] = useState(paramNisn || '');
-  const [sessionToken, setSessionToken] = useState((paramToken || 'CBT-2026').toUpperCase());
+  const [sessionToken, setSessionToken] = useState((paramToken || 'PP-01').toUpperCase());
   const [studentError, setStudentError] = useState('');
   const [isRefreshingStudents, setIsRefreshingStudents] = useState(false);
   const [refreshFeedback, setRefreshFeedback] = useState('');
+
+  // Sessions state with guaranteed PP-01 presence and real-time syncing across devices
+  const [localSessionsList, setLocalSessionsList] = useState<ExamSession[]>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('educbt_master_exam_sessions') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) {
+        return cached;
+      }
+    } catch {}
+    return sessions && sessions.length > 0
+      ? sessions
+      : [DEFAULT_PANCASILA_SESSION, DEFAULT_SIMULASI_SESSION];
+  });
+  const [isRefreshingSessions, setIsRefreshingSessions] = useState(false);
+  const [sessionRefreshFeedback, setSessionRefreshFeedback] = useState('');
+  const [isValidatingStudentLogin, setIsValidatingStudentLogin] = useState(false);
+
+  // Sync sessions with prop
+  useEffect(() => {
+    if (sessions && sessions.length > 0) {
+      setLocalSessionsList((prev) => {
+        const map = new Map<string, ExamSession>();
+        prev.forEach((s) => map.set(s.id, s));
+        sessions.forEach((s) => map.set(s.id, { ...map.get(s.id), ...s }));
+        // Ensure PP-01 is always present
+        if (!Array.from(map.values()).some((s) => (s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+          map.set(DEFAULT_PANCASILA_SESSION.id, DEFAULT_PANCASILA_SESSION);
+        }
+        return Array.from(map.values());
+      });
+    }
+  }, [sessions]);
+
+  // Listen for BroadcastChannel updates from teacher deployment
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+    try {
+      const channel = new BroadcastChannel('educbt_session_channel');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'SESSION_SAVED' && event.data?.session) {
+          const newSes = event.data.session as ExamSession;
+          setLocalSessionsList((prev) => {
+            const map = new Map<string, ExamSession>();
+            prev.forEach((s) => map.set(s.id, s));
+            map.set(newSes.id, newSes);
+            return Array.from(map.values());
+          });
+        }
+      };
+      return () => {
+        channel.close();
+      };
+    } catch {}
+  }, []);
+
+  // Background auto-polling on student login screen (every 8 seconds) so sessions deployed by teacher auto-appear
+  useEffect(() => {
+    if (roleMode !== 'student') return;
+    const interval = setInterval(async () => {
+      try {
+        const freshSessions = await api.getExamSessions();
+        if (freshSessions && freshSessions.length > 0) {
+          setLocalSessionsList((prev) => {
+            const map = new Map<string, ExamSession>();
+            prev.forEach((s) => map.set(s.id, s));
+            freshSessions.forEach((s) => map.set(s.id, s));
+            return Array.from(map.values());
+          });
+        }
+      } catch {}
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [roleMode]);
 
   // Local student state with guaranteed NISN 1 presence
   const [localStudentsList, setLocalStudentsList] = useState<Student[]>(() => {
@@ -225,34 +304,56 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  const handleStudentSubmit = (e: React.FormEvent) => {
+  const handleRefreshSessions = async () => {
+    setIsRefreshingSessions(true);
+    setSessionRefreshFeedback('');
+    try {
+      const fresh = await api.getExamSessions();
+      if (fresh && fresh.length > 0) {
+        setLocalSessionsList((prev) => {
+          const map = new Map<string, ExamSession>();
+          prev.forEach((s) => map.set(s.id, s));
+          fresh.forEach((s) => map.set(s.id, s));
+          if (!Array.from(map.values()).some((s) => (s.sessionCode || '').trim().toUpperCase() === 'PP-01')) {
+            map.set(DEFAULT_PANCASILA_SESSION.id, DEFAULT_PANCASILA_SESSION);
+          }
+          return Array.from(map.values());
+        });
+        setSessionRefreshFeedback(`✓ Berhasil memuat ${fresh.length} sesi ujian aktif dari server!`);
+      } else {
+        setSessionRefreshFeedback('✓ Sesi ujian telah diperbarui.');
+      }
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    } catch {
+      setSessionRefreshFeedback('✓ Sesi ujian lokal telah disegarkan.');
+    } finally {
+      setIsRefreshingSessions(false);
+      setTimeout(() => setSessionRefreshFeedback(''), 4000);
+    }
+  };
+
+  const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStudentError('');
 
     const cleanNisn = nisn.trim();
     const cleanToken = sessionToken.trim().toUpperCase();
+    const cleanNorm = cleanToken.replace(/[-\s]/g, '');
 
     if (!cleanNisn || !cleanToken) {
       setStudentError('Harap isi NISN dan Token Ujian!');
       return;
     }
 
-    const normInput = cleanNisn.toLowerCase();
+    setIsValidatingStudentLogin(true);
 
-    // 1. Fuzzy match against state list
-    let matchedStudent = localStudentsList.find((s) => {
-      const sNisn = String(s.nisn || '').trim().toLowerCase();
-      const sId = String(s.id || '').trim().toLowerCase();
-      return (
-        sNisn === normInput ||
-        sId === normInput ||
-        (Number(sNisn) > 0 && Number(sNisn) === Number(normInput))
-      );
-    });
+    try {
+      const normInput = cleanNisn.toLowerCase();
 
-    // 2. Fuzzy match against prop students
-    if (!matchedStudent) {
-      matchedStudent = students.find((s) => {
+      // 1. Fuzzy match against state list
+      let matchedStudent = localStudentsList.find((s) => {
         const sNisn = String(s.nisn || '').trim().toLowerCase();
         const sId = String(s.id || '').trim().toLowerCase();
         return (
@@ -261,15 +362,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           (Number(sNisn) > 0 && Number(sNisn) === Number(normInput))
         );
       });
-    }
 
-    // 3. Check localStorage snapshot
-    if (!matchedStudent) {
-      try {
-        const cached: Student[] = JSON.parse(
-          localStorage.getItem('educbt_master_students') || '[]'
-        );
-        matchedStudent = cached.find((s) => {
+      // 2. Fuzzy match against prop students
+      if (!matchedStudent) {
+        matchedStudent = students.find((s) => {
           const sNisn = String(s.nisn || '').trim().toLowerCase();
           const sId = String(s.id || '').trim().toLowerCase();
           return (
@@ -278,69 +374,106 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             (Number(sNisn) > 0 && Number(sNisn) === Number(normInput))
           );
         });
-      } catch {}
-    }
+      }
 
-    // 4. Default test student for NISN 1
-    if (!matchedStudent && (cleanNisn === '1' || cleanNisn === '01' || cleanNisn === '001')) {
-      matchedStudent = {
-        id: 'STD-000',
-        nisn: '1',
-        name: 'Siswa Percobaan (NISN 1)',
-        classId: 'CLS-12A',
-        gender: 'L',
-      };
-    }
+      // 3. Check localStorage snapshot
+      if (!matchedStudent) {
+        try {
+          const cached: Student[] = JSON.parse(
+            localStorage.getItem('educbt_master_students') || '[]'
+          );
+          matchedStudent = cached.find((s) => {
+            const sNisn = String(s.nisn || '').trim().toLowerCase();
+            const sId = String(s.id || '').trim().toLowerCase();
+            return (
+              sNisn === normInput ||
+              sId === normInput ||
+              (Number(sNisn) > 0 && Number(sNisn) === Number(normInput))
+            );
+          });
+        } catch {}
+      }
 
-    if (!matchedStudent) {
-      setStudentError(
-        `NISN "${cleanNisn}" tidak ditemukan di database siswa. Pastikan NISN sudah didaftarkan oleh guru atau gunakan tombol "Muat Ulang Database Siswa" di bawah.`
-      );
-      return;
-    }
+      // 4. Default test student for NISN 1
+      if (!matchedStudent && (cleanNisn === '1' || cleanNisn === '01' || cleanNisn === '001')) {
+        matchedStudent = {
+          id: 'STD-000',
+          nisn: '1',
+          name: 'Siswa Percobaan (NISN 1)',
+          classId: 'CLS-12A',
+          gender: 'L',
+        };
+      }
 
-    // Match Session
-    let matchedSession = sessions.find(
-      (s) => s.sessionCode.trim().toUpperCase() === cleanToken
-    );
-
-    if (!matchedSession) {
-      try {
-        const cached: ExamSession[] = JSON.parse(
-          localStorage.getItem('educbt_master_exam_sessions') || '[]'
+      if (!matchedStudent) {
+        setStudentError(
+          `NISN "${cleanNisn}" tidak ditemukan di database siswa. Pastikan NISN sudah didaftarkan oleh guru atau gunakan tombol "Segarkan Data Siswa" di atas.`
         );
-        matchedSession = cached.find(
-          (s) => s.sessionCode.trim().toUpperCase() === cleanToken
-        );
-      } catch {}
-    }
+        return;
+      }
 
-    // Fallback ready-to-test session for default token CBT-2026
-    if (!matchedSession && cleanToken === 'CBT-2026') {
-      matchedSession = {
-        id: 'SES-001',
-        bankId: 'BANK-001',
-        sessionCode: 'CBT-2026',
-        title: 'Penilaian Sumatif Sekolah (Simulasi)',
-        targetClassIds: ['CLS-10A', 'CLS-11A', 'CLS-12A', 'CLS-SD1A'],
-        startTime: new Date().toISOString(),
-        endTime: '',
-        durationMinutes: 60,
-        shuffleQuestions: true,
-        shuffleOptions: true,
-        showResultInstant: true,
-        antiCheatEnabled: true,
-        maxTabSwitches: 3,
-        status: 'active',
+      // Match Session
+      const isMatch = (s: ExamSession) => {
+        const sCode = (s.sessionCode || '').trim().toUpperCase();
+        return sCode === cleanToken || sCode.replace(/[-\s]/g, '') === cleanNorm;
       };
-    }
 
-    if (!matchedSession) {
-      setStudentError(`Token Sesi Ujian "${cleanToken}" tidak aktif atau tidak ditemukan. Periksa kembali token dari pengawas.`);
-      return;
-    }
+      // 1. Check localSessionsList
+      let matchedSession = localSessionsList.find(isMatch);
 
-    onLoginStudent(matchedStudent, matchedSession);
+      // 2. Check prop sessions
+      if (!matchedSession) {
+        matchedSession = sessions.find(isMatch);
+      }
+
+      // 3. Check localStorage
+      if (!matchedSession) {
+        try {
+          const cached: ExamSession[] = JSON.parse(
+            localStorage.getItem('educbt_master_exam_sessions') || '[]'
+          );
+          matchedSession = cached.find(isMatch);
+        } catch {}
+      }
+
+      // 4. Live Server Verification: fetch from backend
+      if (!matchedSession) {
+        try {
+          const liveSession = await api.validateExamSessionToken(cleanToken);
+          if (liveSession) {
+            matchedSession = liveSession;
+            setLocalSessionsList((prev) => {
+              const map = new Map<string, ExamSession>();
+              prev.forEach((s) => map.set(s.id, s));
+              map.set(liveSession.id, liveSession);
+              return Array.from(map.values());
+            });
+          }
+        } catch (liveErr) {
+          console.warn('Live session validation error:', liveErr);
+        }
+      }
+
+      // 5. Guaranteed built-in fallbacks for standard tokens
+      if (!matchedSession) {
+        if (cleanToken === 'PP-01' || cleanNorm === 'PP01' || cleanToken.includes('PANCASILA')) {
+          matchedSession = DEFAULT_PANCASILA_SESSION;
+        } else if (cleanToken === 'CBT-2026' || cleanNorm === 'CBT2026') {
+          matchedSession = DEFAULT_SIMULASI_SESSION;
+        }
+      }
+
+      if (!matchedSession) {
+        setStudentError(
+          `Token Sesi Ujian "${cleanToken}" tidak aktif atau tidak ditemukan. Periksa kembali token dari pengawas (misal: "PP-01" atau "CBT-2026") atau klik tombol "Segarkan Sesi Ujian" di bawah.`
+        );
+        return;
+      }
+
+      onLoginStudent(matchedStudent, matchedSession);
+    } finally {
+      setIsValidatingStudentLogin(false);
+    }
   };
 
   const handleTeacherSubmit = (e: React.FormEvent) => {
@@ -772,32 +905,109 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Token Sesi Ujian (Karakter)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Token Sesi Ujian (Karakter)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRefreshSessions}
+                    disabled={isRefreshingSessions}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 cursor-pointer"
+                    title="Muat ulang daftar sesi ujian aktif dari Cloud/Server"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRefreshingSessions ? 'animate-spin' : ''}`} />
+                    <span>Segarkan Sesi Ujian</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={sessionToken}
                     onChange={(e) => setSessionToken(e.target.value.toUpperCase())}
-                    placeholder="Contoh: CBT-2026"
+                    placeholder="Contoh: PP-01 atau CBT-2026"
                     className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold tracking-wider text-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>
-                {sessions.length > 0 && (
-                  <p className="text-[11px] text-emerald-600 font-medium pt-0.5">
-                    * Sesi aktif: {sessions[0].sessionCode} ({sessions[0].title.substring(0, 32)}...)
+
+                {sessionRefreshFeedback && (
+                  <p className="text-[11px] text-emerald-600 font-semibold">{sessionRefreshFeedback}</p>
+                )}
+
+                {/* Quick Token Selector Chips */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                  <span className="font-semibold text-slate-600">Pilih Token:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSessionToken('PP-01')}
+                    className={`px-2 py-0.5 rounded-md font-mono font-bold border transition-all cursor-pointer ${
+                      sessionToken === 'PP-01'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                    }`}
+                  >
+                    PP-01 (Pendidikan Pancasila)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSessionToken('CBT-2026')}
+                    className={`px-2 py-0.5 rounded-md font-mono font-bold border transition-all cursor-pointer ${
+                      sessionToken === 'CBT-2026'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                    }`}
+                  >
+                    CBT-2026 (Simulasi)
+                  </button>
+                  {localSessionsList
+                    .filter((s) => s.sessionCode !== 'PP-01' && s.sessionCode !== 'CBT-2026')
+                    .slice(0, 2)
+                    .map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSessionToken(s.sessionCode)}
+                        className={`px-1.5 py-0.5 rounded-md font-mono border transition-all cursor-pointer ${
+                          sessionToken === s.sessionCode
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {s.sessionCode}
+                      </button>
+                    ))}
+                </div>
+
+                {localSessionsList.length > 0 && (
+                  <p className="text-[11px] text-emerald-700 font-medium pt-0.5 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                    <span>
+                      Sesi aktif: <strong>{sessionToken || localSessionsList[0].sessionCode}</strong> (
+                      {localSessionsList.find((s) => s.sessionCode === sessionToken)?.title ||
+                        localSessionsList[0].title}
+                      )
+                    </span>
                   </p>
                 )}
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer mt-2"
+                disabled={isValidatingStudentLogin}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer mt-2"
               >
-                <span>Masuk & Mulai Mengerjakan</span>
-                <ArrowRight className="w-4 h-4" />
+                {isValidatingStudentLogin ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Memverifikasi Token & Sesi Ujian...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Masuk & Mulai Mengerjakan Ujian</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
           ) : teacherView === 'register' ? (
